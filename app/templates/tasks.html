@@ -1,10 +1,18 @@
 {% extends "base.html" %}
 {% block content %}
 <section class="hero">
-  <h1>Tasks</h1>
-  <p>This is the source of truth. The planner and dashboard are generated from these tasks.</p>
+  <h1>{% if show_archived %}Archived Tasks{% else %}Tasks{% endif %}</h1>
+  <p>This is the source of truth. The planner and dashboard are generated from active tasks.</p>
+  <div class="hero-actions">
+    {% if show_archived %}
+      <a class="button secondary" href="/tasks">Active Tasks</a>
+    {% else %}
+      <a class="button secondary" href="/tasks/archived">Archived Tasks</a>
+    {% endif %}
+  </div>
 </section>
 
+{% if not show_archived %}
 <section class="card">
   <h2>Add Task</h2>
   <form method="post" action="/tasks" class="form-grid">
@@ -44,9 +52,10 @@
     <button type="submit">Add Task</button>
   </form>
 </section>
+{% endif %}
 
 <section class="card">
-  <h2>Task List</h2>
+  <h2>{% if show_archived %}Archived Task List{% else %}Task List{% endif %}</h2>
   <table>
     <thead>
       <tr>
@@ -85,10 +94,22 @@
         <td>
           <div class="item-actions">
             <a class="button secondary" href="/tasks/{{ task.id }}/edit">Edit</a>
-            <form method="post" action="/tasks/{{ task.id }}/delete" class="inline-form">
-              <button class="danger-button" type="submit">Delete</button>
-            </form>
+            {% if show_archived %}
+              <form method="post" action="/tasks/{{ task.id }}/restore" class="inline-form">
+                <button class="secondary" type="submit">Restore</button>
+              </form>
+            {% else %}
+              <form method="post" action="/tasks/{{ task.id }}/delete" class="inline-form">
+                <button class="danger-button" type="submit">Archive</button>
+              </form>
+            {% endif %}
           </div>
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="8" class="empty">
+          {% if show_archived %}No archived tasks.{% else %}No active tasks yet.{% endif %}
         </td>
       </tr>
       {% endfor %}

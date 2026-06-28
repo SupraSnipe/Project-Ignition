@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import logging
+import sqlite3
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -12,12 +14,52 @@ from fastapi.templating import Jinja2Templates
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 
-DB_PATH = os.getenv("BUILD_PLANNER_DB", "/app/data/build_planner.db")
+def load_config_file(path: str | None) -> dict[str, str]:
+    if not path:
+        return {}
+    config_path = Path(path)
+    if not config_path.exists():
+        return {}
+
+    values: dict[str, str] = {}
+    for line in config_path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip().strip('"').strip("'")
+    return values
+
+
+CONFIG_FILE = os.getenv("APP_CONFIG_FILE")
+FILE_CONFIG = load_config_file(CONFIG_FILE)
+
+
+def config_value(name: str, default: str) -> str:
+    if name == "DATABASE_PATH":
+        return os.getenv("DATABASE_PATH") or os.getenv("BUILD_PLANNER_DB") or FILE_CONFIG.get(name, default)
+    return os.getenv(name) or FILE_CONFIG.get(name, default)
+
+
+APP_NAME = config_value("APP_NAME", "Build Planner")
+APP_ENV = config_value("APP_ENV", "development")
+DB_PATH = config_value("DATABASE_PATH", "/app/data/build_planner.db")
+LOG_LEVEL = config_value("LOG_LEVEL", "INFO").upper()
+DEFAULT_THEME = config_value("DEFAULT_THEME", "light").lower()
+if DEFAULT_THEME not in {"light", "dark"}:
+    DEFAULT_THEME = "light"
+
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+logger = logging.getLogger("project_ignition")
+
 Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
 
 engine = create_engine(f"sqlite:///{DB_PATH}", connect_args={"check_same_thread": False})
 
-app = FastAPI(title="Build Planner")
+app = FastAPI(title=APP_NAME)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
@@ -52,7 +94,14 @@ class Task(SQLModel, table=True):
     estimate_minutes: int = 30
     notes: str = ""
     dependency: str = ""
+    is_archived: bool = False
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class AppSetting(SQLModel, table=True):
+    key: str = Field(primary_key=True)
+    value: str
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 LOOKUP_GROUPS = {
@@ -100,10 +149,79 @@ DEFAULT_LOOKUPS = {
 }
 
 
+def table_exists(connection: sqlite3.Connection, table_name: str) -> bool:
+    row = connection.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table_name,),
+    ).fetchone()
+    return row is not None
+
+
+def column_exists(connection: sqlite3.Connection, table_name: str, column_name: str) -> bool:
+    return any(row[1] == column_name for row in connection.execute(f"PRAGMA table_info({table_name})"))
+
+
+def ensure_migration_table(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS schema_migration (
+            id TEXT PRIMARY KEY,
+            applied_at TEXT NOT NULL
+        )
+        """
+    )
+
+
+def migration_applied(connection: sqlite3.Connection, migration_id: str) -> bool:
+    row = connection.execute("SELECT id FROM schema_migration WHERE id = ?", (migration_id,)).fetchone()
+    return row is not None
+
+
+def record_migration(connection: sqlite3.Connection, migration_id: str) -> None:
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migration (id, applied_at) VALUES (?, ?)",
+        (migration_id, datetime.utcnow().isoformat()),
+    )
+
+
+def run_migrations() -> None:
+    logger.info("Checking database migrations for %s", DB_PATH)
+    with sqlite3.connect(DB_PATH) as connection:
+        ensure_migration_table(connection)
+
+        if not migration_applied(connection, "0001_add_task_is_archived"):
+            if table_exists(connection, "task") and not column_exists(connection, "task", "is_archived"):
+                connection.execute("ALTER TABLE task ADD COLUMN is_archived BOOLEAN NOT NULL DEFAULT 0")
+                logger.info("Applied migration 0001_add_task_is_archived")
+            else:
+                logger.info("Recorded migration 0001_add_task_is_archived; no task table change needed")
+            record_migration(connection, "0001_add_task_is_archived")
+
+        if not migration_applied(connection, "0002_create_app_settings"):
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS appsetting (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at DATETIME NOT NULL
+                )
+                """
+            )
+            logger.info("Applied migration 0002_create_app_settings")
+            record_migration(connection, "0002_create_app_settings")
+
+        connection.commit()
+    logger.info("Database migrations complete")
+
+
 def init_db() -> None:
     SQLModel.metadata.create_all(engine)
 
     with Session(engine) as session:
+        theme_setting = session.get(AppSetting, "theme")
+        if not theme_setting:
+            session.add(AppSetting(key="theme", value=DEFAULT_THEME))
+
         for group_name, names in DEFAULT_LOOKUPS.items():
             existing = session.exec(select(LookupOption).where(LookupOption.group_name == group_name)).first()
             if not existing:
@@ -140,7 +258,30 @@ def init_db() -> None:
 
 @app.on_event("startup")
 def on_startup() -> None:
+    logger.info("Starting %s in %s mode", APP_NAME, APP_ENV)
+    run_migrations()
     init_db()
+    logger.info("Startup complete")
+
+
+def get_current_theme(session: Session) -> str:
+    setting = session.get(AppSetting, "theme")
+    if setting and setting.value in {"light", "dark"}:
+        return setting.value
+    return DEFAULT_THEME
+
+
+def render(request: Request, template_name: str, context: dict, status_code: int = 200):
+    with Session(engine) as session:
+        theme = get_current_theme(session)
+    base_context = {
+        "request": request,
+        "app_name": APP_NAME,
+        "app_env": APP_ENV,
+        "current_theme": theme,
+    }
+    base_context.update(context)
+    return templates.TemplateResponse(template_name, base_context, status_code=status_code)
 
 
 def get_projects(session: Session):
@@ -154,6 +295,10 @@ def get_all_projects(session: Session):
 def task_project_map(session: Session):
     projects = session.exec(select(Project)).all()
     return {p.id: p for p in projects}
+
+
+def get_active_tasks(session: Session):
+    return session.exec(select(Task).where(Task.is_archived == False)).all()
 
 
 def get_lookup_options(session: Session, group_name: str, active_only: bool = True):
@@ -185,7 +330,7 @@ def estimate_label(minutes: int) -> str:
 def dashboard(request: Request):
     with Session(engine) as session:
         projects = get_projects(session)
-        tasks = session.exec(select(Task)).all()
+        tasks = get_active_tasks(session)
         pmap = task_project_map(session)
 
     active_tasks = [t for t in tasks if t.status != "Complete"]
@@ -196,10 +341,10 @@ def dashboard(request: Request):
 
     completion = round((len(complete_tasks) / len(tasks)) * 100) if tasks else 0
 
-    return templates.TemplateResponse(
+    return render(
+        request,
         "dashboard.html",
         {
-            "request": request,
             "projects": projects,
             "tasks": tasks,
             "active_tasks": active_tasks,
@@ -217,7 +362,7 @@ def dashboard(request: Request):
 def projects_page(request: Request):
     with Session(engine) as session:
         projects = get_projects(session)
-    return templates.TemplateResponse("projects.html", {"request": request, "projects": projects})
+    return render(request, "projects.html", {"projects": projects})
 
 
 @app.post("/projects")
@@ -234,6 +379,7 @@ def create_project(
         )
         session.add(project)
         session.commit()
+        logger.info("Created project id=%s name=%s", project.id, project.name)
     return RedirectResponse("/projects", status_code=303)
 
 
@@ -243,7 +389,7 @@ def edit_project_page(request: Request, project_id: int):
         project = session.get(Project, project_id)
         if not project:
             raise HTTPException(status_code=404)
-    return templates.TemplateResponse("project_edit.html", {"request": request, "project": project})
+    return render(request, "project_edit.html", {"project": project})
 
 
 @app.post("/projects/{project_id}/edit")
@@ -264,6 +410,7 @@ def update_project(
         project.is_archived = is_archived == "on"
         session.add(project)
         session.commit()
+        logger.info("Updated project id=%s archived=%s", project.id, project.is_archived)
     return RedirectResponse("/projects", status_code=303)
 
 
@@ -276,28 +423,40 @@ def archive_project(project_id: int):
         project.is_archived = True
         session.add(project)
         session.commit()
+        logger.info("Archived project id=%s name=%s", project.id, project.name)
     return RedirectResponse("/projects", status_code=303)
 
 
 @app.get("/tasks")
-def tasks_page(request: Request):
+def tasks_page(request: Request, archived: str = "0"):
+    show_archived = archived in {"1", "true", "yes"}
     with Session(engine) as session:
-        tasks = session.exec(select(Task).order_by(Task.due_date, Task.priority, Task.title)).all()
+        tasks = session.exec(
+            select(Task)
+            .where(Task.is_archived == show_archived)
+            .order_by(Task.due_date, Task.priority, Task.title)
+        ).all()
         projects = get_projects(session)
         pmap = task_project_map(session)
         lookups = get_all_lookups(session)
 
-    return templates.TemplateResponse(
+    return render(
+        request,
         "tasks.html",
         {
-            "request": request,
             "tasks": tasks,
             "projects": projects,
             "pmap": pmap,
             "lookups": lookups,
             "estimate_label": estimate_label,
+            "show_archived": show_archived,
         },
     )
+
+
+@app.get("/tasks/archived")
+def archived_tasks_page(request: Request):
+    return tasks_page(request, archived="1")
 
 
 @app.post("/tasks")
@@ -328,6 +487,7 @@ def create_task(
         )
         session.add(task)
         session.commit()
+        logger.info("Created task id=%s title=%s", task.id, task.title)
     return RedirectResponse("/tasks", status_code=303)
 
 
@@ -340,10 +500,10 @@ def edit_task_page(request: Request, task_id: int):
         projects = get_all_projects(session)
         lookups = get_all_lookups(session, active_only=False)
 
-    return templates.TemplateResponse(
+    return render(
+        request,
         "task_edit.html",
         {
-            "request": request,
             "task": task,
             "projects": projects,
             "lookups": lookups,
@@ -381,6 +541,7 @@ def update_task(
         task.notes = notes.strip()
         session.add(task)
         session.commit()
+        logger.info("Updated task id=%s archived=%s", task.id, task.is_archived)
     return RedirectResponse("/tasks", status_code=303)
 
 
@@ -393,6 +554,7 @@ def update_task_status(task_id: int, status: str = Form(...)):
         task.status = status
         session.add(task)
         session.commit()
+        logger.info("Updated task status id=%s status=%s", task.id, task.status)
     return RedirectResponse("/tasks", status_code=303)
 
 
@@ -402,9 +564,24 @@ def delete_task(task_id: int):
         task = session.get(Task, task_id)
         if not task:
             raise HTTPException(status_code=404)
-        session.delete(task)
+        task.is_archived = True
+        session.add(task)
         session.commit()
+        logger.info("Archived task id=%s title=%s", task.id, task.title)
     return RedirectResponse("/tasks", status_code=303)
+
+
+@app.post("/tasks/{task_id}/restore")
+def restore_task(task_id: int):
+    with Session(engine) as session:
+        task = session.get(Task, task_id)
+        if not task:
+            raise HTTPException(status_code=404)
+        task.is_archived = False
+        session.add(task)
+        session.commit()
+        logger.info("Restored task id=%s title=%s", task.id, task.title)
+    return RedirectResponse("/tasks/archived", status_code=303)
 
 
 @app.get("/planner")
@@ -420,6 +597,7 @@ def planner_page(request: Request, start: str = ""):
     with Session(engine) as session:
         tasks = session.exec(
             select(Task)
+            .where(Task.is_archived == False)
             .where(Task.due_date >= start_date)
             .where(Task.due_date <= end_date)
             .order_by(Task.due_date, Task.priority, Task.title)
@@ -439,10 +617,10 @@ def planner_page(request: Request, start: str = ""):
             week.append({"date": day, "tasks": by_day[day]})
         weeks.append(week)
 
-    return templates.TemplateResponse(
+    return render(
+        request,
         "planner.html",
         {
-            "request": request,
             "weeks": weeks,
             "start_date": start_date,
             "end_date": end_date,
@@ -458,10 +636,10 @@ def planner_page(request: Request, start: str = ""):
 def settings_page(request: Request):
     with Session(engine) as session:
         lookups = get_all_lookups(session, active_only=False)
-    return templates.TemplateResponse(
+    return render(
+        request,
         "settings.html",
         {
-            "request": request,
             "lookups": lookups,
             "lookup_groups": LOOKUP_GROUPS,
         },
@@ -486,6 +664,7 @@ def create_lookup_option(
         )
         session.add(option)
         session.commit()
+        logger.info("Created lookup option id=%s group=%s name=%s", option.id, option.group_name, option.name)
 
     return RedirectResponse("/settings", status_code=303)
 
@@ -506,6 +685,7 @@ def update_lookup_option(
         option.is_active = is_active == "on"
         session.add(option)
         session.commit()
+        logger.info("Updated lookup option id=%s active=%s", option.id, option.is_active)
 
     return RedirectResponse("/settings", status_code=303)
 
@@ -520,4 +700,30 @@ def delete_lookup_option(option_id: int):
         option.is_active = False
         session.add(option)
         session.commit()
+        logger.info("Disabled lookup option id=%s group=%s name=%s", option.id, option.group_name, option.name)
     return RedirectResponse("/settings", status_code=303)
+
+
+@app.post("/theme")
+def update_theme(theme: str = Form(...), next_url: str = Form("/")):
+    selected_theme = theme if theme in {"light", "dark"} else DEFAULT_THEME
+    with Session(engine) as session:
+        setting = session.get(AppSetting, "theme") or AppSetting(key="theme", value=selected_theme)
+        setting.value = selected_theme
+        setting.updated_at = datetime.utcnow()
+        session.add(setting)
+        session.commit()
+    logger.info("Updated global theme to %s", selected_theme)
+    return RedirectResponse(next_url if next_url.startswith("/") else "/", status_code=303)
+
+
+@app.exception_handler(404)
+async def not_found_handler(request: Request, exc: HTTPException):
+    logger.warning("404 Not Found: %s", request.url.path)
+    return render(request, "404.html", {"title": "Not Found"}, status_code=404)
+
+
+@app.exception_handler(Exception)
+async def server_error_handler(request: Request, exc: Exception):
+    logger.error("Unhandled error on %s", request.url.path, exc_info=(type(exc), exc, exc.__traceback__))
+    return render(request, "500.html", {"title": "Server Error"}, status_code=500)

@@ -8,7 +8,7 @@ The first working module is a build planner with projects, tasks, editable setti
 
 ## Current Status
 
-Version: `0.2.0-alpha`
+Version: `0.4.0-alpha`
 
 ## Run locally with Docker Compose
 
@@ -46,6 +46,11 @@ SQLite database:
 ```
 
 Back up the `data` folder regularly once real data is entered.
+
+Configuration can be supplied with environment variables or a simple config
+file pointed to by `APP_CONFIG_FILE`. See `.env.example` for supported values.
+Database migrations run automatically at startup before the app creates or uses
+tables.
 
 ## Documentation
 

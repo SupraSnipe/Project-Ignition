@@ -2,8 +2,8 @@
 
 ## Current Sprint
 
-**Current Version:** `0.2.0-alpha`  
-**Current Milestone:** Milestone 0 — Foundation  
+**Current Version:** `0.4.0-alpha`  
+**Current Milestone:** Milestone 0 - Foundation  
 **Current Focus:** Core app stabilization and preparing the next planner improvements.
 
 ### Next Session Goals
@@ -20,10 +20,10 @@ None.
 
 ---
 
-## Milestone 0 — Foundation
+## Milestone 0 - Foundation
 
 **Status:** In Progress  
-**Progress:** 45%
+**Progress:** 75%
 
 ### Completed
 
@@ -43,22 +43,22 @@ None.
 - [x] Project edit page
 - [x] Task edit page
 - [x] Initial documentation structure
+- [x] Safer delete/archive behavior
+- [x] Database migration system
+- [x] App configuration file
+- [x] Logging
+- [x] Error pages
+- [x] Dark/light theme system
 
 ### In Progress / Next
 
 - [ ] GitHub repository
-- [ ] Safer delete/archive behavior
-- [ ] Database migration system
 - [ ] Backup/restore workflow
-- [ ] App configuration file
-- [ ] Logging
-- [ ] Error pages
-- [ ] Dark/light theme system
 - [ ] Mobile layout improvements
 
 ---
 
-## Milestone 1 — Core Planner
+## Milestone 1 - Core Planner
 
 **Status:** Not Started
 
@@ -75,7 +75,7 @@ None.
 
 ---
 
-## Milestone 2 — Project Workspaces
+## Milestone 2 - Project Workspaces
 
 **Status:** Not Started
 
@@ -90,7 +90,7 @@ None.
 
 ---
 
-## Milestone 3 — Inventory
+## Milestone 3 - Inventory
 
 **Status:** Not Started
 
@@ -106,7 +106,7 @@ None.
 
 ---
 
-## Milestone 4 — Manufacturing
+## Milestone 4 - Manufacturing
 
 **Status:** Not Started
 
@@ -120,7 +120,7 @@ None.
 
 ---
 
-## Milestone 5 — RC Fleet
+## Milestone 5 - RC Fleet
 
 **Status:** Not Started
 
@@ -134,7 +134,7 @@ None.
 
 ---
 
-## Milestone 6 — Competition / Flight Logging
+## Milestone 6 - Competition / Flight Logging
 
 **Status:** Not Started
 
@@ -148,7 +148,7 @@ None.
 
 ---
 
-## Milestone 7 — Documents
+## Milestone 7 - Documents
 
 **Status:** Not Started
 
