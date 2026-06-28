@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0-alpha - Unreleased
+## 0.3.0-alpha - 2026-06-28
 
 ### Added
 
