@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <h1>{{ heading }}</h1>
+  <p>{{ message }}</p>
+</section>
+
+<section class="card error-card">
+  {% if success %}
+    <h2>Backup Safety Complete</h2>
+    <p>The restore finished and migrations were checked against the restored database.</p>
+  {% else %}
+    <h2>No Data Was Replaced</h2>
+    <p>The current database is still in place.</p>
+  {% endif %}
+  <a class="button" href="/settings#backups">Back to Settings</a>
+</section>
+{% endblock %}

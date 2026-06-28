@@ -23,7 +23,7 @@ None.
 ## Milestone 0 - Foundation
 
 **Status:** In Progress  
-**Progress:** 75%
+**Progress:** 85%
 
 ### Completed
 
@@ -49,11 +49,11 @@ None.
 - [x] Logging
 - [x] Error pages
 - [x] Dark/light theme system
+- [x] Backup/restore workflow
 
 ### In Progress / Next
 
 - [ ] GitHub repository
-- [ ] Backup/restore workflow
 - [ ] Mobile layout improvements
 
 ---

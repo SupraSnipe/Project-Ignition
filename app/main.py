@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import os
 import logging
+import re
 import sqlite3
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Field, Session, SQLModel, create_engine, select
@@ -44,6 +45,7 @@ def config_value(name: str, default: str) -> str:
 APP_NAME = config_value("APP_NAME", "Build Planner")
 APP_ENV = config_value("APP_ENV", "development")
 DB_PATH = config_value("DATABASE_PATH", "/app/data/build_planner.db")
+BACKUP_DIR = config_value("BACKUP_DIR", "/app/data/backups")
 LOG_LEVEL = config_value("LOG_LEVEL", "INFO").upper()
 DEFAULT_THEME = config_value("DEFAULT_THEME", "light").lower()
 if DEFAULT_THEME not in {"light", "dark"}:
@@ -56,6 +58,7 @@ logging.basicConfig(
 logger = logging.getLogger("project_ignition")
 
 Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
+Path(BACKUP_DIR).mkdir(parents=True, exist_ok=True)
 
 engine = create_engine(f"sqlite:///{DB_PATH}", connect_args={"check_same_thread": False})
 
@@ -147,6 +150,116 @@ DEFAULT_LOOKUPS = {
         "Logistics",
     ],
 }
+
+EXPECTED_RESTORE_TABLES = {"project", "task", "lookupoption"}
+
+
+def timestamp_slug() -> str:
+    return datetime.now().strftime("%Y-%m-%d_%H%M%S")
+
+
+def backup_name_prefix() -> str:
+    slug = re.sub(r"[^a-z0-9]+", "_", APP_NAME.lower()).strip("_")
+    if slug == "build_planner":
+        return "ignition"
+    return slug or "ignition"
+
+
+def backup_filename(kind: str = "backup") -> str:
+    prefix = backup_name_prefix()
+    if kind == "safety":
+        return f"{prefix}_pre_restore_{timestamp_slug()}.db"
+    if kind == "pending":
+        return f"restore_pending_{timestamp_slug()}.db"
+    return f"{prefix}_backup_{timestamp_slug()}.db"
+
+
+def backup_path(filename: str) -> Path:
+    path = (Path(BACKUP_DIR) / filename).resolve()
+    backup_root = Path(BACKUP_DIR).resolve()
+    if backup_root not in path.parents and path != backup_root:
+        raise HTTPException(status_code=400, detail="Invalid backup path")
+    return path
+
+
+def create_database_backup(kind: str = "backup") -> Path:
+    destination = backup_path(backup_filename(kind))
+    source = sqlite3.connect(DB_PATH)
+    try:
+        target = sqlite3.connect(destination)
+        try:
+            source.backup(target)
+            target.commit()
+        finally:
+            target.close()
+    finally:
+        source.close()
+    logger.info("Created %s database backup at %s", kind, destination)
+    return destination
+
+
+def validate_database_backup(path: Path) -> tuple[bool, str]:
+    if path.suffix.lower() != ".db":
+        return False, "Backup files must use the .db extension."
+
+    try:
+        with path.open("rb") as handle:
+            header = handle.read(16)
+        if header != b"SQLite format 3\x00":
+            return False, "Uploaded file is not a SQLite database."
+
+        connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            quick_check = connection.execute("PRAGMA quick_check").fetchone()
+            if not quick_check or quick_check[0] != "ok":
+                return False, "SQLite integrity check failed."
+            rows = connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+            tables = {row[0] for row in rows}
+        finally:
+            connection.close()
+    except sqlite3.Error:
+        logger.exception("Restore validation failed for %s", path)
+        return False, "Uploaded file could not be read as a SQLite database."
+    except OSError:
+        logger.exception("Restore validation could not read %s", path)
+        return False, "Uploaded file could not be read."
+
+    missing = sorted(EXPECTED_RESTORE_TABLES - tables)
+    if missing:
+        return False, f"Backup is missing expected tables: {', '.join(missing)}."
+    return True, ""
+
+
+def pending_restore_path(filename: str) -> Path:
+    if Path(filename).name != filename or not filename.startswith("restore_pending_"):
+        raise HTTPException(status_code=400, detail="Invalid restore file")
+    return backup_path(filename)
+
+
+def restore_database_from_backup(path: Path) -> Path:
+    valid, message = validate_database_backup(path)
+    if not valid:
+        logger.warning("Rejected restore from %s: %s", path, message)
+        raise HTTPException(status_code=400, detail=message)
+
+    safety_backup = create_database_backup(kind="safety")
+    engine.dispose()
+    replacement = sqlite3.connect(path)
+    try:
+        target = sqlite3.connect(DB_PATH)
+        try:
+            replacement.backup(target)
+            target.commit()
+        finally:
+            target.close()
+    finally:
+        replacement.close()
+    logger.info("Restored database from %s after safety backup %s", path, safety_backup)
+    run_migrations()
+    init_db()
+    return safety_backup
 
 
 def table_exists(connection: sqlite3.Connection, table_name: str) -> bool:
@@ -642,6 +755,177 @@ def settings_page(request: Request):
         {
             "lookups": lookups,
             "lookup_groups": LOOKUP_GROUPS,
+            "backup_dir": BACKUP_DIR,
+        },
+    )
+
+
+@app.get("/backups/download")
+def download_backup():
+    try:
+        path = create_database_backup()
+    except Exception:
+        logger.exception("Backup download failed")
+        raise
+    logger.info("Serving database backup download %s", path.name)
+    return FileResponse(path, media_type="application/octet-stream", filename=path.name)
+
+
+@app.post("/backups/restore/preview")
+def preview_restore(request: Request, backup_file: UploadFile = File(...)):
+    original_name = backup_file.filename or ""
+    if not original_name.lower().endswith(".db"):
+        backup_file.file.close()
+        logger.warning("Rejected restore upload with invalid extension: %s", original_name)
+        return render(
+            request,
+            "backup_result.html",
+            {
+                "title": "Restore Rejected",
+                "heading": "Restore Rejected",
+                "message": "Backup files must use the .db extension.",
+                "success": False,
+            },
+            status_code=400,
+        )
+
+    pending = backup_path(backup_filename("pending"))
+    try:
+        with pending.open("wb") as destination:
+            while chunk := backup_file.file.read(1024 * 1024):
+                destination.write(chunk)
+
+        valid, message = validate_database_backup(pending)
+        if not valid:
+            pending.unlink(missing_ok=True)
+            logger.warning("Rejected restore upload %s: %s", original_name, message)
+            return render(
+                request,
+                "backup_result.html",
+                {
+                    "title": "Restore Rejected",
+                    "heading": "Restore Rejected",
+                    "message": message,
+                    "success": False,
+                },
+                status_code=400,
+            )
+    except Exception:
+        pending.unlink(missing_ok=True)
+        logger.exception("Restore preview failed for %s", original_name)
+        return render(
+            request,
+            "backup_result.html",
+            {
+                "title": "Restore Error",
+                "heading": "Restore Error",
+                "message": "The uploaded backup could not be prepared for restore.",
+                "success": False,
+            },
+            status_code=500,
+        )
+    finally:
+        backup_file.file.close()
+
+    logger.info("Staged restore upload %s as %s", original_name, pending.name)
+    return render(
+        request,
+        "backup_confirm.html",
+        {
+            "title": "Confirm Restore",
+            "pending_file": pending.name,
+            "original_name": original_name,
+        },
+    )
+
+
+@app.post("/backups/restore/confirm")
+def confirm_restore(
+    request: Request,
+    pending_file: str = Form(...),
+    confirm_restore: str = Form("off"),
+):
+    if confirm_restore != "on":
+        logger.warning("Restore confirmation missing for %s", pending_file)
+        return render(
+            request,
+            "backup_result.html",
+            {
+                "title": "Restore Not Confirmed",
+                "heading": "Restore Not Confirmed",
+                "message": "Check the confirmation box before restoring a backup.",
+                "success": False,
+            },
+            status_code=400,
+        )
+
+    try:
+        path = pending_restore_path(pending_file)
+    except HTTPException as exc:
+        logger.warning("Restore rejected for invalid pending file %s: %s", pending_file, exc.detail)
+        return render(
+            request,
+            "backup_result.html",
+            {
+                "title": "Restore Rejected",
+                "heading": "Restore Rejected",
+                "message": str(exc.detail),
+                "success": False,
+            },
+            status_code=exc.status_code,
+        )
+
+    if not path.exists():
+        return render(
+            request,
+            "backup_result.html",
+            {
+                "title": "Restore File Missing",
+                "heading": "Restore File Missing",
+                "message": "The staged restore file could not be found. Upload it again and retry.",
+                "success": False,
+            },
+            status_code=400,
+        )
+
+    try:
+        safety_backup = restore_database_from_backup(path)
+        path.unlink(missing_ok=True)
+    except HTTPException as exc:
+        logger.warning("Restore rejected for %s: %s", path, exc.detail)
+        return render(
+            request,
+            "backup_result.html",
+            {
+                "title": "Restore Rejected",
+                "heading": "Restore Rejected",
+                "message": str(exc.detail),
+                "success": False,
+            },
+            status_code=exc.status_code,
+        )
+    except Exception:
+        logger.exception("Restore failed for %s", path)
+        return render(
+            request,
+            "backup_result.html",
+            {
+                "title": "Restore Error",
+                "heading": "Restore Error",
+                "message": "Restore failed. The existing database was not intentionally replaced.",
+                "success": False,
+            },
+            status_code=500,
+        )
+
+    return render(
+        request,
+        "backup_result.html",
+        {
+            "title": "Restore Complete",
+            "heading": "Restore Complete",
+            "message": f"Database restored. A pre-restore safety backup was saved as {safety_backup.name}. Reload the app if any page still shows old data.",
+            "success": True,
         },
     )
 

@@ -17,6 +17,44 @@ Docker path:
 The path is configured with `DATABASE_PATH`. The app still accepts the older
 `BUILD_PLANNER_DB` environment variable as a compatibility fallback.
 
+Backup directory:
+
+```text
+./data/backups
+```
+
+Docker backup directory:
+
+```text
+/app/data/backups
+```
+
+The backup directory is configured with `BACKUP_DIR`. In Docker it is under the
+same persisted `/app/data` volume as the main database.
+
+## Backups and Restore
+
+Backups are available from the Settings page. The app creates backups with
+SQLite's backup API instead of directly copying the live database file.
+
+Backup filenames include the project prefix and timestamp, for example:
+
+```text
+ignition_backup_2026-06-28_143000.db
+```
+
+Restore uploads are staged first, then validated before the user can confirm
+replacement. Validation checks:
+
+- `.db` file extension
+- SQLite database header
+- SQLite quick integrity check
+- expected tables: `project`, `task`, `lookupoption`
+
+Before a confirmed restore replaces the current database, the app automatically
+creates a pre-restore safety backup in `BACKUP_DIR`. After restore, migrations
+run against the restored database and the user may need to reload open pages.
+
 ## Migrations
 
 Project Ignition uses a lightweight migration table during the early SQLite

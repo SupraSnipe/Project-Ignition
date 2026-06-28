@@ -21,6 +21,21 @@
   </form>
 </section>
 
+<section class="card" id="backups">
+  <h2>Backups</h2>
+  <p class="muted">Download a safe SQLite backup or restore from a previous backup file.</p>
+  <div class="backup-actions">
+    <a class="button" href="/backups/download">Download Backup</a>
+    <span class="muted">Stored backups are kept in {{ backup_dir }}.</span>
+  </div>
+  <form method="post" action="/backups/restore/preview" enctype="multipart/form-data" class="form-grid backup-restore-form">
+    <label class="span-2">Restore Backup
+      <input name="backup_file" type="file" accept=".db" required>
+    </label>
+    <button class="danger-button" type="submit">Review Restore</button>
+  </form>
+</section>
+
 {% for key, label in lookup_groups.items() %}
 <section class="card">
   <h2>{{ label }}</h2>

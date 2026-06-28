@@ -10,6 +10,8 @@
 - Friendly 404 and 500 error pages.
 - Global light/dark theme support with a header toggle.
 - Archived task view and task restore action.
+- Settings backup controls for downloading SQLite database backups.
+- Restore workflow with upload validation, confirmation, and automatic pre-restore safety backup.
 
 ### Changed
 
@@ -17,6 +19,7 @@
 - Archived tasks are hidden from normal task lists, the dashboard, and the planner.
 - Active project dropdowns exclude archived projects while edit pages keep archived project links readable.
 - Docker defaults now use `DATABASE_PATH` while the app still accepts the older `BUILD_PLANNER_DB` variable.
+- Docker defaults now store database backups under the persisted `/app/data/backups` directory.
 
 ## 0.3.0-alpha - 2026-06-28
 

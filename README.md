@@ -52,6 +52,9 @@ file pointed to by `APP_CONFIG_FILE`. See `.env.example` for supported values.
 Database migrations run automatically at startup before the app creates or uses
 tables.
 
+Database backups can be downloaded and restored from the Settings page. Docker
+stores generated backups in `./data/backups` through the existing data volume.
+
 ## Documentation
 
 - `docs/ROADMAP.md`

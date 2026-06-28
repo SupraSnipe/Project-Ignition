@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <h1>Confirm Restore</h1>
+  <p>Review this carefully before replacing the current database.</p>
+</section>
+
+<section class="card error-card">
+  <h2>Restore {{ original_name }}</h2>
+  <p>This will replace the current SQLite database after first creating a safety backup.</p>
+  <p class="muted">The uploaded file was validated as an Ignition database. The app may need a page reload after restore.</p>
+  <form method="post" action="/backups/restore/confirm" class="form-grid">
+    <input type="hidden" name="pending_file" value="{{ pending_file }}">
+    <label class="checkbox-label span-2">
+      <input name="confirm_restore" type="checkbox">
+      I understand this will replace the current database.
+    </label>
+    <div class="form-actions span-2">
+      <button class="danger-button" type="submit">Restore Database</button>
+      <a class="button secondary" href="/settings#backups">Cancel</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

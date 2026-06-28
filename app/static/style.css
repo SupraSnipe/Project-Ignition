@@ -222,6 +222,19 @@ th { color: var(--muted); font-size: .9rem; }
   flex-wrap: wrap;
 }
 
+.backup-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.backup-restore-form {
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+
 .inline-form { margin: 0; }
 
 .form-actions, .item-actions {
