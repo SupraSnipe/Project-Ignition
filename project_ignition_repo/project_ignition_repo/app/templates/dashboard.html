@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <h1>Dashboard</h1>
+  <p>A lightweight command center for your build projects.</p>
+</section>
+
+<div class="stats">
+  <div class="stat">
+    <div class="stat-value">{{ projects|length }}</div>
+    <div class="stat-label">Projects</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value">{{ active_tasks|length }}</div>
+    <div class="stat-label">Active Tasks</div>
+  </div>
+  <div class="stat danger">
+    <div class="stat-value">{{ overdue|length }}</div>
+    <div class="stat-label">Overdue</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value">{{ completion }}%</div>
+    <div class="stat-label">Overall Complete</div>
+  </div>
+</div>
+
+<section class="card">
+  <h2>Due This Week</h2>
+  {% if due_week %}
+    <table>
+      <thead>
+        <tr>
+          <th>Due</th>
+          <th>Project</th>
+          <th>Task</th>
+          <th>Priority</th>
+          <th>Estimate</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for task in due_week %}
+        <tr>
+          <td>{{ task.due_date.strftime("%b %d") }}</td>
+          <td>{{ pmap.get(task.project_id).name if task.project_id in pmap else "Unassigned" }}</td>
+          <td>{{ task.title }}</td>
+          <td><span class="pill priority-{{ task.priority|lower }}">{{ task.priority }}</span></td>
+          <td>{{ estimate_label(task.estimate_minutes) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p>No tasks due in the next 7 days.</p>
+  {% endif %}
+</section>
+{% endblock %}

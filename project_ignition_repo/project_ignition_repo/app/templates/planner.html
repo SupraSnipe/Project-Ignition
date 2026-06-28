@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero planner-hero">
+  <div>
+    <h1>4-Week Planner</h1>
+    <p>{{ start_date.strftime("%b %d, %Y") }} – {{ end_date.strftime("%b %d, %Y") }}</p>
+  </div>
+  <div class="planner-nav">
+    <a class="button secondary" href="/planner?start={{ prev_start.isoformat() }}">Previous 4 Weeks</a>
+    <a class="button" href="/planner?start={{ next_start.isoformat() }}">Next 4 Weeks</a>
+  </div>
+</section>
+
+{% for week in weeks %}
+<section class="week-card">
+  <h2>Week {{ loop.index }}: {{ week[0].date.strftime("%b %d") }} – {{ week[6].date.strftime("%b %d") }}</h2>
+  <div class="calendar-grid">
+    {% for day in week %}
+    <div class="day-card">
+      <div class="day-header">
+        <strong>{{ day.date.strftime("%a") }}</strong>
+        <span>{{ day.date.strftime("%b %d") }}</span>
+      </div>
+      {% if day.tasks %}
+        <ul class="task-list">
+          {% for task in day.tasks %}
+          <li class="planner-task {{ task.status|lower|replace(' ', '-') }}">
+            <div class="task-title">{{ task.title }}</div>
+            <div class="task-meta">
+              {{ pmap.get(task.project_id).name if task.project_id in pmap else "Unassigned" }}
+              · {{ task.priority }}
+              · {{ estimate_label(task.estimate_minutes) }}
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="empty">No tasks</p>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endfor %}
+{% endblock %}

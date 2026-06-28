@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <h1>Settings</h1>
+  <p>Edit the dropdown options used throughout the app. Disabled options stay in old tasks but disappear from new-task dropdowns.</p>
+</section>
+
+<section class="card">
+  <h2>Add Option</h2>
+  <form method="post" action="/settings/lookups" class="form-grid">
+    <label>Group
+      <select name="group_name">
+        {% for key, label in lookup_groups.items() %}
+          <option value="{{ key }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Name <input name="name" required placeholder="Laser Cutting"></label>
+    <label>Sort Order <input name="sort_order" type="number" value="100"></label>
+    <button type="submit">Add Option</button>
+  </form>
+</section>
+
+{% for key, label in lookup_groups.items() %}
+<section class="card">
+  <h2>{{ label }}</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Sort</th>
+        <th>Active</th>
+        <th>Save</th>
+        <th>Disable</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for option in lookups[key] %}
+      <tr class="{% if not option.is_active %}inactive{% endif %}">
+        <form method="post" action="/settings/lookups/{{ option.id }}">
+          <td><input name="name" value="{{ option.name }}" required></td>
+          <td><input name="sort_order" type="number" value="{{ option.sort_order }}"></td>
+          <td><input name="is_active" type="checkbox" {% if option.is_active %}checked{% endif %}></td>
+          <td><button type="submit">Save</button></td>
+        </form>
+        <td>
+          <form method="post" action="/settings/lookups/{{ option.id }}/delete">
+            <button class="danger-button" type="submit">Disable</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endfor %}
+{% endblock %}

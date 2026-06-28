@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <h1>Tasks</h1>
+  <p>This is the source of truth. The planner and dashboard are generated from these tasks.</p>
+</section>
+
+<section class="card">
+  <h2>Add Task</h2>
+  <form method="post" action="/tasks" class="form-grid">
+    <label class="span-2">Task <input name="title" required placeholder="Glue spar caps"></label>
+    <label>Project
+      <select name="project_id">
+        <option value="">Unassigned</option>
+        {% for project in projects %}
+          <option value="{{ project.id }}">{{ project.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Phase
+      <select name="phase">
+        {% for item in lookups.phase %}<option>{{ item.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Category
+      <select name="category">
+        {% for item in lookups.task_category %}<option>{{ item.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Priority
+      <select name="priority">
+        {% for item in lookups.priority %}<option>{{ item.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Status
+      <select name="status">
+        {% for item in lookups.task_status %}<option>{{ item.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Due Date <input name="due_date" type="date"></label>
+    <label>Estimate Minutes <input name="estimate_minutes" type="number" min="0" step="5" value="30"></label>
+    <label>Dependency <input name="dependency" placeholder="Optional"></label>
+    <label class="span-2">Notes <textarea name="notes" rows="2"></textarea></label>
+    <button type="submit">Add Task</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Task List</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Due</th>
+        <th>Project</th>
+        <th>Task</th>
+        <th>Phase</th>
+        <th>Priority</th>
+        <th>Status</th>
+        <th>Estimate</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for task in tasks %}
+      <tr class="{% if task.status == 'Complete' %}complete{% endif %}">
+        <td>{{ task.due_date.strftime("%b %d") if task.due_date else "" }}</td>
+        <td>{{ pmap.get(task.project_id).name if task.project_id in pmap else "Unassigned" }}</td>
+        <td>
+          <strong>{{ task.title }}</strong>
+          {% if task.notes %}<div class="muted">{{ task.notes }}</div>{% endif %}
+          {% if task.dependency %}<div class="muted">Depends on: {{ task.dependency }}</div>{% endif %}
+        </td>
+        <td>{{ task.phase }}</td>
+        <td><span class="pill priority-{{ task.priority|lower }}">{{ task.priority }}</span></td>
+        <td>
+          <form method="post" action="/tasks/{{ task.id }}/status" class="inline-form">
+            <select name="status" onchange="this.form.submit()">
+              {% for item in lookups.task_status %}
+                <option {% if item.name == task.status %}selected{% endif %}>{{ item.name }}</option>
+              {% endfor %}
+            </select>
+          </form>
+        </td>
+        <td>{{ estimate_label(task.estimate_minutes) }}</td>
+        <td>
+          <form method="post" action="/tasks/{{ task.id }}/delete">
+            <button class="danger-button" type="submit">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}
