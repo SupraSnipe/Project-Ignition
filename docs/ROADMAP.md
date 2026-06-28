@@ -4,16 +4,15 @@
 
 **Current Version:** `0.2.0-alpha`  
 **Current Milestone:** Milestone 0 — Foundation  
-**Current Focus:** Repository setup, documentation, and core app stabilization.
+**Current Focus:** Core app stabilization and preparing the next planner improvements.
 
 ### Next Session Goals
 
 - Initialize GitHub repository
 - Confirm app launches from cloned repo
-- Add project editing
-- Add task editing
 - Improve dashboard layout
 - Review current database structure before adding inventory
+- Confirm Docker build and cloned-repo launch flow
 
 ### Blockers
 
@@ -24,7 +23,7 @@ None.
 ## Milestone 0 — Foundation
 
 **Status:** In Progress  
-**Progress:** 35%
+**Progress:** 45%
 
 ### Completed
 
@@ -41,13 +40,13 @@ None.
 - [x] Database-driven task statuses
 - [x] Database-driven priority levels
 - [x] Database-driven build phases
+- [x] Project edit page
+- [x] Task edit page
 - [x] Initial documentation structure
 
 ### In Progress / Next
 
 - [ ] GitHub repository
-- [ ] Project edit page
-- [ ] Task edit page
 - [ ] Safer delete/archive behavior
 - [ ] Database migration system
 - [ ] Backup/restore workflow

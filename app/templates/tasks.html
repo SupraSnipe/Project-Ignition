@@ -83,9 +83,12 @@
         </td>
         <td>{{ estimate_label(task.estimate_minutes) }}</td>
         <td>
-          <form method="post" action="/tasks/{{ task.id }}/delete">
-            <button class="danger-button" type="submit">Delete</button>
-          </form>
+          <div class="item-actions">
+            <a class="button secondary" href="/tasks/{{ task.id }}/edit">Edit</a>
+            <form method="post" action="/tasks/{{ task.id }}/delete" class="inline-form">
+              <button class="danger-button" type="submit">Delete</button>
+            </form>
+          </div>
         </td>
       </tr>
       {% endfor %}

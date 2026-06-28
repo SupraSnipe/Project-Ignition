@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <h1>Edit Task</h1>
+  <p>Update task details and return to the task list.</p>
+</section>
+
+<section class="card">
+  <form method="post" action="/tasks/{{ task.id }}/edit" class="form-grid">
+    <label class="span-2">Task <input name="title" required value="{{ task.title }}"></label>
+    <label>Project
+      <select name="project_id">
+        <option value="">Unassigned</option>
+        {% for project in projects %}
+          <option value="{{ project.id }}" {% if project.id == task.project_id %}selected{% endif %}>
+            {{ project.name }}{% if project.is_archived %} (Archived){% endif %}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Phase
+      <select name="phase">
+        {% for item in lookups.phase %}<option {% if item.name == task.phase %}selected{% endif %}>{{ item.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Category
+      <select name="category">
+        {% for item in lookups.task_category %}<option {% if item.name == task.category %}selected{% endif %}>{{ item.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Priority
+      <select name="priority">
+        {% for item in lookups.priority %}<option {% if item.name == task.priority %}selected{% endif %}>{{ item.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Status
+      <select name="status">
+        {% for item in lookups.task_status %}<option {% if item.name == task.status %}selected{% endif %}>{{ item.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Due Date <input name="due_date" type="date" value="{{ task.due_date.isoformat() if task.due_date else '' }}"></label>
+    <label>Estimate Minutes <input name="estimate_minutes" type="number" min="0" step="5" value="{{ task.estimate_minutes }}"></label>
+    <label>Dependency <input name="dependency" value="{{ task.dependency }}"></label>
+    <label class="span-2">Notes <textarea name="notes" rows="4">{{ task.notes }}</textarea></label>
+    <div class="form-actions span-2">
+      <button type="submit">Save Task</button>
+      <a class="button secondary" href="/tasks">Cancel</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

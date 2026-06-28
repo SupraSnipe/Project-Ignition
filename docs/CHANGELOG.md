@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0-alpha - Unreleased
+
+### Added
+
+- Project editing for name, description, target date, and archived status.
+- Task editing for project, lookup-driven fields, dates, estimates, dependencies, and notes.
+
 ## 0.2.0-alpha — 2026-06-28
 
 ### Added

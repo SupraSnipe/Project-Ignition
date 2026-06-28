@@ -147,6 +147,10 @@ def get_projects(session: Session):
     return session.exec(select(Project).where(Project.is_archived == False).order_by(Project.name)).all()
 
 
+def get_all_projects(session: Session):
+    return session.exec(select(Project).order_by(Project.name)).all()
+
+
 def task_project_map(session: Session):
     projects = session.exec(select(Project)).all()
     return {p.id: p for p in projects}
@@ -233,6 +237,36 @@ def create_project(
     return RedirectResponse("/projects", status_code=303)
 
 
+@app.get("/projects/{project_id}/edit")
+def edit_project_page(request: Request, project_id: int):
+    with Session(engine) as session:
+        project = session.get(Project, project_id)
+        if not project:
+            raise HTTPException(status_code=404)
+    return templates.TemplateResponse("project_edit.html", {"request": request, "project": project})
+
+
+@app.post("/projects/{project_id}/edit")
+def update_project(
+    project_id: int,
+    name: str = Form(...),
+    description: str = Form(""),
+    target_date: str = Form(""),
+    is_archived: str = Form("off"),
+):
+    with Session(engine) as session:
+        project = session.get(Project, project_id)
+        if not project:
+            raise HTTPException(status_code=404)
+        project.name = name.strip()
+        project.description = description.strip()
+        project.target_date = parse_optional_date(target_date)
+        project.is_archived = is_archived == "on"
+        session.add(project)
+        session.commit()
+    return RedirectResponse("/projects", status_code=303)
+
+
 @app.post("/projects/{project_id}/archive")
 def archive_project(project_id: int):
     with Session(engine) as session:
@@ -292,6 +326,59 @@ def create_task(
             dependency=dependency.strip(),
             notes=notes.strip(),
         )
+        session.add(task)
+        session.commit()
+    return RedirectResponse("/tasks", status_code=303)
+
+
+@app.get("/tasks/{task_id}/edit")
+def edit_task_page(request: Request, task_id: int):
+    with Session(engine) as session:
+        task = session.get(Task, task_id)
+        if not task:
+            raise HTTPException(status_code=404)
+        projects = get_all_projects(session)
+        lookups = get_all_lookups(session, active_only=False)
+
+    return templates.TemplateResponse(
+        "task_edit.html",
+        {
+            "request": request,
+            "task": task,
+            "projects": projects,
+            "lookups": lookups,
+        },
+    )
+
+
+@app.post("/tasks/{task_id}/edit")
+def update_task(
+    task_id: int,
+    title: str = Form(...),
+    project_id: str = Form(""),
+    phase: str = Form(""),
+    category: str = Form("Assembly"),
+    priority: str = Form("Normal"),
+    status: str = Form("Not Started"),
+    due_date: str = Form(""),
+    estimate_minutes: int = Form(30),
+    dependency: str = Form(""),
+    notes: str = Form(""),
+):
+    with Session(engine) as session:
+        task = session.get(Task, task_id)
+        if not task:
+            raise HTTPException(status_code=404)
+        task.title = title.strip()
+        task.project_id = int(project_id) if project_id else None
+        task.phase = phase
+        task.category = category
+        task.priority = priority
+        task.status = status
+        task.due_date = parse_optional_date(due_date)
+        task.estimate_minutes = estimate_minutes
+        task.dependency = dependency.strip()
+        task.notes = notes.strip()
         session.add(task)
         session.commit()
     return RedirectResponse("/tasks", status_code=303)
