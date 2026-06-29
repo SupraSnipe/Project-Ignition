@@ -7,6 +7,7 @@ import sqlite3
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlencode
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -90,6 +91,8 @@ WEEK_START_OPTIONS = [
 ]
 
 PLANNER_VIEW_OPTIONS = [
+    ("Today", "Today"),
+    ("This Week", "This Week"),
     ("4 Weeks", "4 Weeks"),
 ]
 
@@ -621,6 +624,53 @@ def due_status_label(task: Task, today: date) -> str:
     return task.due_date.strftime("%b %d")
 
 
+def default_planner_view_slug(localization_settings: dict[str, str]) -> str:
+    return {
+        "Today": "today",
+        "This Week": "week",
+        "4 Weeks": "4weeks",
+    }.get(localization_settings.get("default_planner_view", DEFAULT_PLANNER_VIEW), "4weeks")
+
+
+def normalize_planner_view(view: str, localization_settings: dict[str, str]) -> str:
+    if view in {"today", "week", "4weeks"}:
+        return view
+    return default_planner_view_slug(localization_settings)
+
+
+def week_start_for(day: date, week_starts_on: str) -> date:
+    if week_starts_on == "Monday":
+        return day - timedelta(days=day.weekday())
+    return day - timedelta(days=(day.weekday() + 1) % 7)
+
+
+def planner_url(view: str, start: date | None, filters: dict[str, str | bool]) -> str:
+    params: dict[str, str] = {"view": view}
+    if start:
+        params["start"] = start.isoformat()
+    for key in ("project_id", "status", "priority", "category"):
+        value = filters.get(key)
+        if value:
+            params[key] = str(value)
+    if filters.get("include_archived"):
+        params["include_archived"] = "1"
+    return f"/planner?{urlencode(params)}"
+
+
+def task_matches_planner_filters(task: Task, filters: dict[str, str | bool]) -> bool:
+    if not filters.get("include_archived") and task.is_archived:
+        return False
+    if filters.get("project_id") and str(task.project_id or "") != filters["project_id"]:
+        return False
+    for field_name in ("status", "priority", "category"):
+        value = filters.get(field_name)
+        if value and getattr(task, field_name) != value:
+            return False
+    if not filters.get("status") and task.status == "Complete":
+        return False
+    return True
+
+
 def greeting_for_hour(hour: int) -> str:
     if 5 <= hour < 12:
         return "Good Morning"
@@ -1142,7 +1192,7 @@ def update_task(
 
 
 @app.post("/tasks/{task_id}/status")
-def update_task_status(task_id: int, status: str = Form(...)):
+def update_task_status(task_id: int, status: str = Form(...), next_url: str = Form("/tasks")):
     with Session(engine) as session:
         task = session.get(Task, task_id)
         if not task:
@@ -1155,11 +1205,11 @@ def update_task_status(task_id: int, status: str = Form(...)):
         session.add(task)
         session.commit()
         logger.info("Updated task status id=%s status=%s", task.id, task.status)
-    return RedirectResponse("/tasks", status_code=303)
+    return RedirectResponse(next_url if next_url.startswith("/") else "/tasks", status_code=303)
 
 
 @app.post("/tasks/{task_id}/delete")
-def delete_task(task_id: int):
+def delete_task(task_id: int, next_url: str = Form("/tasks")):
     with Session(engine) as session:
         task = session.get(Task, task_id)
         if not task:
@@ -1168,7 +1218,7 @@ def delete_task(task_id: int):
         session.add(task)
         session.commit()
         logger.info("Archived task id=%s title=%s", task.id, task.title)
-    return RedirectResponse("/tasks", status_code=303)
+    return RedirectResponse(next_url if next_url.startswith("/") else "/tasks", status_code=303)
 
 
 @app.post("/tasks/{task_id}/restore")
@@ -1185,54 +1235,142 @@ def restore_task(task_id: int):
 
 
 @app.get("/planner")
-def planner_page(request: Request, start: str = ""):
-    if start:
-        start_date = date.fromisoformat(start)
-    else:
-        with Session(engine) as session:
-            today = current_app_datetime(session).date()
-            week_starts_on = get_localization_settings(session)["week_starts_on"]
-        if week_starts_on == "Monday":
-            start_date = today - timedelta(days=today.weekday())
-        else:
-            start_date = today - timedelta(days=(today.weekday() + 1) % 7)
-
-    end_date = start_date + timedelta(days=27)
-
+def planner_page(
+    request: Request,
+    view: str = "",
+    start: str = "",
+    project_id: str = "",
+    status: str = "",
+    priority: str = "",
+    category: str = "",
+    include_archived: str = "0",
+):
     with Session(engine) as session:
-        tasks = session.exec(
-            select(Task)
-            .where(Task.is_archived == False)
-            .where(Task.due_date >= start_date)
-            .where(Task.due_date <= end_date)
-            .order_by(Task.due_date, Task.priority, Task.title)
-        ).all()
+        localization_settings = get_localization_settings(session)
+        today = current_app_datetime(session).date()
+        projects = get_projects(session)
+        lookups = get_all_lookups(session)
         pmap = task_project_map(session)
 
-    by_day = {start_date + timedelta(days=i): [] for i in range(28)}
-    for task in tasks:
+        selected_view = normalize_planner_view(view, localization_settings)
+        week_starts_on = localization_settings["week_starts_on"]
+        filters = {
+            "project_id": project_id,
+            "status": status,
+            "priority": priority,
+            "category": category,
+            "include_archived": include_archived in {"1", "true", "yes", "on"},
+        }
+
+        if start:
+            start_date = date.fromisoformat(start)
+        elif selected_view == "today":
+            start_date = today
+        else:
+            start_date = week_start_for(today, week_starts_on)
+
+        if selected_view == "today":
+            end_date = start_date
+            prev_start = start_date - timedelta(days=1)
+            next_start = start_date + timedelta(days=1)
+            current_start = today
+        elif selected_view == "week":
+            start_date = week_start_for(start_date, week_starts_on)
+            end_date = start_date + timedelta(days=6)
+            prev_start = start_date - timedelta(days=7)
+            next_start = start_date + timedelta(days=7)
+            current_start = week_start_for(today, week_starts_on)
+        else:
+            selected_view = "4weeks"
+            start_date = week_start_for(start_date, week_starts_on)
+            end_date = start_date + timedelta(days=27)
+            prev_start = start_date - timedelta(days=28)
+            next_start = start_date + timedelta(days=28)
+            current_start = week_start_for(today, week_starts_on)
+
+        tasks = session.exec(select(Task).order_by(Task.due_date, Task.priority, Task.title)).all()
+
+    filtered_tasks = [task for task in tasks if task_matches_planner_filters(task, filters)]
+    dated_tasks = [task for task in filtered_tasks if task.due_date]
+    range_tasks = [task for task in dated_tasks if start_date <= task.due_date <= end_date]
+    overdue_tasks = sorted(
+        [task for task in filtered_tasks if task.due_date and task.due_date < start_date and task.status != "Complete"],
+        key=lambda task: (task.due_date or date.max, priority_rank(task.priority), task.title.lower()),
+    )
+    completed_today = [
+        task
+        for task in filtered_tasks
+        if task.status == "Complete" and task.completed_at and task.completed_at.date() == today
+    ]
+
+    day_count = (end_date - start_date).days + 1
+    by_day = {start_date + timedelta(days=i): [] for i in range(day_count)}
+    for task in range_tasks:
         if task.due_date in by_day:
             by_day[task.due_date].append(task)
 
     weeks = []
-    for w in range(4):
-        week = []
-        for d in range(7):
-            day = start_date + timedelta(days=w * 7 + d)
-            week.append({"date": day, "tasks": by_day[day]})
-        weeks.append(week)
+    if selected_view == "4weeks":
+        for w in range(4):
+            week = []
+            for d in range(7):
+                day = start_date + timedelta(days=w * 7 + d)
+                week.append({"date": day, "tasks": by_day.get(day, [])})
+            weeks.append(week)
+
+    week_days = []
+    if selected_view == "week":
+        week_days = [{"date": start_date + timedelta(days=i), "tasks": by_day[start_date + timedelta(days=i)]} for i in range(7)]
+
+    today_tasks = by_day.get(start_date, []) if selected_view == "today" else []
+    today_remaining_tasks = [
+        task
+        for task in overdue_tasks + today_tasks
+        if task.status != "Complete"
+    ]
+    today_estimate_minutes = sum(task.estimate_minutes for task in today_remaining_tasks)
+    week_estimate_minutes = sum(
+        task.estimate_minutes for task in range_tasks if task.status != "Complete"
+    )
+
+    navigation = {
+        "previous": planner_url(selected_view, prev_start, filters),
+        "today": planner_url(selected_view, current_start, filters),
+        "next": planner_url(selected_view, next_start, filters),
+    }
+    view_urls = {
+        "today": planner_url("today", today, filters),
+        "week": planner_url("week", week_start_for(today, week_starts_on), filters),
+        "4weeks": planner_url("4weeks", week_start_for(today, week_starts_on), filters),
+    }
 
     return render(
         request,
         "planner.html",
         {
-            "weeks": weeks,
+            "title": "Planner",
+            "view": selected_view,
+            "view_label": {"today": "Today", "week": "This Week", "4weeks": "4 Weeks"}[selected_view],
             "start_date": start_date,
             "end_date": end_date,
-            "prev_start": start_date - timedelta(days=28),
-            "next_start": start_date + timedelta(days=28),
+            "today": today,
+            "navigation": navigation,
+            "view_urls": view_urls,
+            "filters": filters,
+            "projects": projects,
+            "lookups": lookups,
+            "weeks": weeks,
+            "week_days": week_days,
+            "today_tasks": today_tasks,
+            "overdue_tasks": overdue_tasks,
+            "completed_today": completed_today,
+            "today_estimate_minutes": today_estimate_minutes,
+            "week_estimate_minutes": week_estimate_minutes,
             "pmap": pmap,
             "estimate_label": estimate_label,
+            "format_task_date": lambda value: format_date_for_setting(value, localization_settings["date_format"]) if value else "No due date",
+            "format_range": lambda first, last: f"{format_date_for_setting(first, localization_settings['date_format'])} - {format_date_for_setting(last, localization_settings['date_format'])}",
+            "current_planner_url": str(request.url.path) + (f"?{request.url.query}" if request.url.query else ""),
         },
     )
 

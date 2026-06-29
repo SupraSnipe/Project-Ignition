@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.7.0-alpha - Unreleased
+
+### Added
+
+- Planner view modes for Today, This Week, and 4 Weeks.
+- Planner Previous, Today, and Next navigation that respects configured time zone and week start.
+- Planner Jump to Date control that preserves active filters.
+- Planner filters for project, status, priority, category, and archived task inclusion.
+
+### Changed
+
+- Improved planner task cards with project, priority, status, estimate, due date, edit, complete, and archive actions.
+- Dashboard and Ignite planner links now open the appropriate planner view.
+
 ## 0.6.0-alpha - Unreleased
 
 ### Added
