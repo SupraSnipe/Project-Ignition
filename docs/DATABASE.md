@@ -145,9 +145,9 @@ Current keys:
 
 Localization settings are stored in `appsetting` so users can change them from
 the Settings page without editing environment variables. `time_zone`,
-`date_format`, and `week_starts_on` are currently applied to dashboard and
-planner date handling. `time_format` is stored for dashboard views that display
-times, and `default_planner_view` is stored for future planner behavior.
+`date_format`, and `week_starts_on` are currently applied to dashboard, Ignite,
+journal, and planner date handling. `time_format` is used by views that display
+times, and `default_planner_view` controls the default planner mode.
 
 ### workspacenote
 

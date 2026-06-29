@@ -1,45 +1,258 @@
 {% extends "base.html" %}
+
+{% macro planner_task_card(task, pmap, current_planner_url) %}
+<article class="planner-card-task {{ task.status|lower|replace(' ', '-') }} {% if task.is_archived %}inactive{% endif %}">
+  <div class="planner-card-main">
+    <div>
+      <h3><a href="/tasks/{{ task.id }}/edit">{{ task.title }}</a></h3>
+      <p class="task-meta">
+        {{ pmap.get(task.project_id).name if task.project_id in pmap else "Unassigned" }}
+        &middot; {{ task.status }}
+      </p>
+    </div>
+    <div class="item-badges">
+      <span class="pill priority-{{ task.priority|lower }}">{{ task.priority }}</span>
+      {% if task.is_archived %}<span class="pill">Archived</span>{% endif %}
+    </div>
+  </div>
+  <div class="planner-card-meta">
+    <span>Due {{ format_task_date(task.due_date) }}</span>
+    <span>{{ estimate_label(task.estimate_minutes) }}</span>
+  </div>
+  <div class="workspace-actions">
+    <a class="button secondary compact-button" href="/tasks/{{ task.id }}/edit">Edit</a>
+    {% if not task.is_archived and task.status != "Complete" %}
+      <form method="post" action="/tasks/{{ task.id }}/status" class="inline-form">
+        <input type="hidden" name="status" value="Complete">
+        <input type="hidden" name="next_url" value="{{ current_planner_url }}">
+        <button class="secondary compact-button" type="submit">Complete</button>
+      </form>
+    {% endif %}
+    {% if not task.is_archived %}
+      <form method="post" action="/tasks/{{ task.id }}/delete" class="inline-form">
+        <input type="hidden" name="next_url" value="{{ current_planner_url }}">
+        <button class="danger-button" type="submit">Archive</button>
+      </form>
+    {% endif %}
+  </div>
+</article>
+{% endmacro %}
+
 {% block content %}
 <section class="hero planner-hero">
   <div>
-    <h1>4-Week Planner</h1>
-    <p>{{ start_date.strftime("%b %d, %Y") }} – {{ end_date.strftime("%b %d, %Y") }}</p>
+    <p class="eyebrow">{{ view_label }}</p>
+    <h1>Planner</h1>
+    <p>{{ format_range(start_date, end_date) }}</p>
   </div>
   <div class="planner-nav">
-    <a class="button secondary" href="/planner?start={{ prev_start.isoformat() }}">Previous 4 Weeks</a>
-    <a class="button" href="/planner?start={{ next_start.isoformat() }}">Next 4 Weeks</a>
+    <a class="button secondary" href="{{ navigation.previous }}">Previous</a>
+    <a class="button secondary" href="{{ navigation.today }}">Today</a>
+    <a class="button" href="{{ navigation.next }}">Next</a>
+    <form method="get" action="/planner" class="planner-jump-form">
+      <input type="hidden" name="view" value="{{ view }}">
+      {% if filters.project_id %}<input type="hidden" name="project_id" value="{{ filters.project_id }}">{% endif %}
+      {% if filters.status %}<input type="hidden" name="status" value="{{ filters.status }}">{% endif %}
+      {% if filters.priority %}<input type="hidden" name="priority" value="{{ filters.priority }}">{% endif %}
+      {% if filters.category %}<input type="hidden" name="category" value="{{ filters.category }}">{% endif %}
+      {% if filters.include_archived %}<input type="hidden" name="include_archived" value="1">{% endif %}
+      <label>Jump to Date
+        <input type="date" name="start" value="{{ start_date.isoformat() }}">
+      </label>
+      <button class="secondary" type="submit">Go</button>
+    </form>
   </div>
 </section>
 
-{% for week in weeks %}
-<section class="week-card">
-  <h2>Week {{ loop.index }}: {{ week[0].date.strftime("%b %d") }} – {{ week[6].date.strftime("%b %d") }}</h2>
-  <div class="calendar-grid">
-    {% for day in week %}
-    <div class="day-card">
-      <div class="day-header">
-        <strong>{{ day.date.strftime("%a") }}</strong>
-        <span>{{ day.date.strftime("%b %d") }}</span>
-      </div>
-      {% if day.tasks %}
-        <ul class="task-list">
-          {% for task in day.tasks %}
-          <li class="planner-task {{ task.status|lower|replace(' ', '-') }}">
-            <div class="task-title">{{ task.title }}</div>
-            <div class="task-meta">
-              {{ pmap.get(task.project_id).name if task.project_id in pmap else "Unassigned" }}
-              · {{ task.priority }}
-              · {{ estimate_label(task.estimate_minutes) }}
-            </div>
-          </li>
-          {% endfor %}
-        </ul>
-      {% else %}
-        <p class="empty">No tasks</p>
-      {% endif %}
-    </div>
-    {% endfor %}
+<section class="planner-toolbar">
+  <div class="planner-tabs">
+    <a class="button {% if view != 'today' %}secondary{% endif %}" href="{{ view_urls.today }}">Today</a>
+    <a class="button {% if view != 'week' %}secondary{% endif %}" href="{{ view_urls.week }}">This Week</a>
+    <a class="button {% if view != '4weeks' %}secondary{% endif %}" href="{{ view_urls['4weeks'] }}">4 Weeks</a>
   </div>
+
+  <form method="get" action="/planner" class="planner-filters">
+    <input type="hidden" name="view" value="{{ view }}">
+    <input type="hidden" name="start" value="{{ start_date.isoformat() }}">
+    <label>Project
+      <select name="project_id">
+        <option value="">All Projects</option>
+        {% for project in projects %}
+          <option value="{{ project.id }}" {% if project.id|string == filters.project_id %}selected{% endif %}>{{ project.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Status
+      <select name="status">
+        <option value="">Active Statuses</option>
+        {% for item in lookups.task_status %}
+          <option value="{{ item.name }}" {% if item.name == filters.status %}selected{% endif %}>{{ item.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Priority
+      <select name="priority">
+        <option value="">All Priorities</option>
+        {% for item in lookups.priority %}
+          <option value="{{ item.name }}" {% if item.name == filters.priority %}selected{% endif %}>{{ item.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Category
+      <select name="category">
+        <option value="">All Categories</option>
+        {% for item in lookups.task_category %}
+          <option value="{{ item.name }}" {% if item.name == filters.category %}selected{% endif %}>{{ item.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="checkbox-label planner-checkbox">
+      <input name="include_archived" type="checkbox" value="1" {% if filters.include_archived %}checked{% endif %}>
+      Include archived
+    </label>
+    <button type="submit">Apply</button>
+    <a class="button secondary" href="/planner?view={{ view }}">Clear</a>
+  </form>
 </section>
-{% endfor %}
+
+{% if view == "today" %}
+  <section class="planner-summary-grid">
+    <div class="stat">
+      <div class="stat-value">{{ estimate_label(today_estimate_minutes) }}</div>
+      <div class="stat-label">Estimated Remaining Today</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">{{ overdue_tasks|length }}</div>
+      <div class="stat-label">Overdue</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">{{ today_tasks|length }}</div>
+      <div class="stat-label">Due Today</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">{{ completed_today|length }}</div>
+      <div class="stat-label">Completed Today</div>
+    </div>
+  </section>
+
+  <section class="planner-section">
+    <h2>Overdue</h2>
+    {% if overdue_tasks %}
+      <div class="planner-card-stack">
+        {% for task in overdue_tasks %}{{ planner_task_card(task, pmap, current_planner_url) }}{% endfor %}
+      </div>
+    {% else %}
+      <p class="empty">No overdue tasks.</p>
+    {% endif %}
+  </section>
+
+  <section class="planner-section">
+    <h2>Due Today</h2>
+    {% if today_tasks %}
+      <div class="planner-card-stack">
+        {% for task in today_tasks %}{{ planner_task_card(task, pmap, current_planner_url) }}{% endfor %}
+      </div>
+    {% else %}
+      <p class="empty">No tasks due today.</p>
+    {% endif %}
+  </section>
+
+  <section class="planner-section">
+    <h2>Completed Today</h2>
+    {% if completed_today %}
+      <div class="planner-card-stack">
+        {% for task in completed_today %}{{ planner_task_card(task, pmap, current_planner_url) }}{% endfor %}
+      </div>
+    {% else %}
+      <p class="empty">No completion timestamps for today.</p>
+    {% endif %}
+  </section>
+{% elif view == "week" %}
+  <section class="planner-summary-grid">
+    <div class="stat">
+      <div class="stat-value">{{ estimate_label(week_estimate_minutes) }}</div>
+      <div class="stat-label">Estimated This Week</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">{{ overdue_tasks|length }}</div>
+      <div class="stat-label">Overdue</div>
+    </div>
+  </section>
+
+  <section class="planner-section">
+    <h2>Overdue</h2>
+    {% if overdue_tasks %}
+      <div class="planner-card-stack">
+        {% for task in overdue_tasks %}{{ planner_task_card(task, pmap, current_planner_url) }}{% endfor %}
+      </div>
+    {% else %}
+      <p class="empty">No overdue tasks.</p>
+    {% endif %}
+  </section>
+
+  {% for day in week_days %}
+  <section class="planner-section">
+    <div class="section-heading">
+      <h2>{{ day.date.strftime("%A") }}</h2>
+      <span class="muted">{{ format_task_date(day.date) }}</span>
+    </div>
+    {% if day.tasks %}
+      <div class="planner-card-stack">
+        {% for task in day.tasks %}{{ planner_task_card(task, pmap, current_planner_url) }}{% endfor %}
+      </div>
+    {% else %}
+      <p class="empty">No tasks planned.</p>
+    {% endif %}
+  </section>
+  {% endfor %}
+{% else %}
+  {% for week in weeks %}
+  <section class="week-card">
+    <h2>Week {{ loop.index }}: {{ format_range(week[0].date, week[6].date) }}</h2>
+    <div class="calendar-grid">
+      {% for day in week %}
+      <div class="day-card">
+        <div class="day-header">
+          <strong>{{ day.date.strftime("%a") }}</strong>
+          <span>{{ format_task_date(day.date) }}</span>
+        </div>
+        {% if day.tasks %}
+          <ul class="task-list">
+            {% for task in day.tasks %}
+            <li class="planner-task {{ task.status|lower|replace(' ', '-') }} {% if task.is_archived %}inactive{% endif %}">
+              <div class="task-title"><a href="/tasks/{{ task.id }}/edit">{{ task.title }}</a></div>
+              <div class="task-meta">
+                {{ pmap.get(task.project_id).name if task.project_id in pmap else "Unassigned" }}
+                &middot; {{ task.priority }}
+                &middot; {{ task.status }}
+                &middot; {{ estimate_label(task.estimate_minutes) }}
+              </div>
+              <div class="planner-mini-actions">
+                <a href="/tasks/{{ task.id }}/edit">Edit</a>
+                {% if not task.is_archived and task.status != "Complete" %}
+                  <form method="post" action="/tasks/{{ task.id }}/status" class="inline-form">
+                    <input type="hidden" name="status" value="Complete">
+                    <input type="hidden" name="next_url" value="{{ current_planner_url }}">
+                    <button type="submit">Complete</button>
+                  </form>
+                {% endif %}
+                {% if not task.is_archived %}
+                  <form method="post" action="/tasks/{{ task.id }}/delete" class="inline-form">
+                    <input type="hidden" name="next_url" value="{{ current_planner_url }}">
+                    <button type="submit">Archive</button>
+                  </form>
+                {% endif %}
+              </div>
+            </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="empty">No tasks</p>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endfor %}
+{% endif %}
 {% endblock %}

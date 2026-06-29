@@ -8,11 +8,11 @@
 
 # Current Status
 
-**Current Version:** `0.6.0-alpha`
+**Current Version:** `0.7.0-alpha`
 
 **Current Milestone:** Milestone 1 – Planning & Execution
 
-**Current Focus:** Workspace v1 ("Ignite").
+**Current Focus:** Planning Experience.
 
 ---
 
@@ -102,10 +102,11 @@ Features
 
 Features
 
-* [ ] Planner Views
-* [ ] Better Calendar Navigation
-* [ ] Planner Integration
-* [ ] Advanced Filtering
+* [x] Planner Views
+* [x] Better Calendar Navigation
+* [x] Jump to Date
+* [x] Planner Integration
+* [x] Advanced Filtering
 
 ---
 

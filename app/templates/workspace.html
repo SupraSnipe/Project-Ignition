@@ -107,7 +107,10 @@
     </section>
 
     <section class="workspace-panel">
-      <h2>Upcoming</h2>
+      <div class="section-heading">
+        <h2>Upcoming</h2>
+        <a class="button secondary compact-button" href="/planner?view=week">This Week</a>
+      </div>
       <p class="muted">Next 7 Days Estimate: {{ estimate_label(upcoming_estimate_minutes) }}</p>
       <h3>Tomorrow</h3>
       {% if tomorrow_tasks %}
