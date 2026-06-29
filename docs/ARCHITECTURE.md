@@ -41,6 +41,9 @@ the first workflows settle.
 - Error handlers render custom 404 and 500 templates without exposing stack traces.
 - Theme support is global and app-wide for now. `DEFAULT_THEME` seeds the first
   theme setting, and the header toggle updates the stored app setting.
+- Time and localization settings are stored in SQLite through `appsetting`.
+  The dashboard uses the configured IANA time zone and date format instead of
+  relying on the Docker host or server time zone.
 
 ## Intended Long-Term Structure
 

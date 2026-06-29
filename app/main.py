@@ -7,6 +7,7 @@ import sqlite3
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse
@@ -50,6 +51,59 @@ LOG_LEVEL = config_value("LOG_LEVEL", "INFO").upper()
 DEFAULT_THEME = config_value("DEFAULT_THEME", "light").lower()
 if DEFAULT_THEME not in {"light", "dark"}:
     DEFAULT_THEME = "light"
+DEFAULT_TIME_ZONE = config_value("APP_TIME_ZONE", os.getenv("TZ", "UTC"))
+DEFAULT_DATE_FORMAT = "MM/DD/YYYY"
+DEFAULT_TIME_FORMAT = "12-hour"
+DEFAULT_WEEK_STARTS_ON = "Sunday"
+DEFAULT_PLANNER_VIEW = "4 Weeks"
+
+TIME_ZONE_OPTIONS = [
+    ("UTC", "UTC"),
+    ("America/New_York", "Eastern Time"),
+    ("America/Chicago", "Central Time"),
+    ("America/Denver", "Mountain Time"),
+    ("America/Phoenix", "Arizona Time"),
+    ("America/Los_Angeles", "Pacific Time"),
+    ("America/Anchorage", "Alaska Time"),
+    ("Pacific/Honolulu", "Hawaii Time"),
+    ("Europe/London", "London"),
+    ("Europe/Berlin", "Central Europe"),
+    ("Asia/Tokyo", "Tokyo"),
+    ("Australia/Sydney", "Sydney"),
+]
+
+DATE_FORMAT_OPTIONS = [
+    ("MM/DD/YYYY", "MM/DD/YYYY"),
+    ("DD/MM/YYYY", "DD/MM/YYYY"),
+    ("YYYY-MM-DD", "YYYY-MM-DD"),
+    ("Month D, YYYY", "Month D, YYYY"),
+]
+
+TIME_FORMAT_OPTIONS = [
+    ("12-hour", "12-hour"),
+    ("24-hour", "24-hour"),
+]
+
+WEEK_START_OPTIONS = [
+    ("Sunday", "Sunday"),
+    ("Monday", "Monday"),
+]
+
+PLANNER_VIEW_OPTIONS = [
+    ("4 Weeks", "4 Weeks"),
+]
+
+
+def valid_time_zone_name(value: str) -> bool:
+    try:
+        ZoneInfo(value)
+    except ZoneInfoNotFoundError:
+        return False
+    return True
+
+
+if not valid_time_zone_name(DEFAULT_TIME_ZONE):
+    DEFAULT_TIME_ZONE = "UTC"
 
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL, logging.INFO),
@@ -334,6 +388,18 @@ def init_db() -> None:
         theme_setting = session.get(AppSetting, "theme")
         if not theme_setting:
             session.add(AppSetting(key="theme", value=DEFAULT_THEME))
+        time_zone_setting = session.get(AppSetting, "time_zone")
+        if not time_zone_setting:
+            session.add(AppSetting(key="time_zone", value=DEFAULT_TIME_ZONE))
+        localization_defaults = {
+            "date_format": DEFAULT_DATE_FORMAT,
+            "time_format": DEFAULT_TIME_FORMAT,
+            "week_starts_on": DEFAULT_WEEK_STARTS_ON,
+            "default_planner_view": DEFAULT_PLANNER_VIEW,
+        }
+        for key, value in localization_defaults.items():
+            if not session.get(AppSetting, key):
+                session.add(AppSetting(key=key, value=value))
 
         for group_name, names in DEFAULT_LOOKUPS.items():
             existing = session.exec(select(LookupOption).where(LookupOption.group_name == group_name)).first()
@@ -384,14 +450,75 @@ def get_current_theme(session: Session) -> str:
     return DEFAULT_THEME
 
 
+def get_current_time_zone(session: Session) -> str:
+    setting = session.get(AppSetting, "time_zone")
+    if setting and valid_time_zone_name(setting.value):
+        return setting.value
+    return DEFAULT_TIME_ZONE
+
+
+def setting_value(session: Session, key: str, default: str, allowed: set[str] | None = None) -> str:
+    setting = session.get(AppSetting, key)
+    if setting and (allowed is None or setting.value in allowed):
+        return setting.value
+    return default
+
+
+def get_localization_settings(session: Session) -> dict[str, str]:
+    return {
+        "time_zone": get_current_time_zone(session),
+        "date_format": setting_value(
+            session,
+            "date_format",
+            DEFAULT_DATE_FORMAT,
+            {value for value, _ in DATE_FORMAT_OPTIONS},
+        ),
+        "time_format": setting_value(
+            session,
+            "time_format",
+            DEFAULT_TIME_FORMAT,
+            {value for value, _ in TIME_FORMAT_OPTIONS},
+        ),
+        "week_starts_on": setting_value(
+            session,
+            "week_starts_on",
+            DEFAULT_WEEK_STARTS_ON,
+            {value for value, _ in WEEK_START_OPTIONS},
+        ),
+        "default_planner_view": setting_value(
+            session,
+            "default_planner_view",
+            DEFAULT_PLANNER_VIEW,
+            {value for value, _ in PLANNER_VIEW_OPTIONS},
+        ),
+    }
+
+
+def current_app_datetime(session: Session) -> datetime:
+    return datetime.now(ZoneInfo(get_current_time_zone(session)))
+
+
+def format_date_for_setting(value: date, date_format: str) -> str:
+    if date_format == "DD/MM/YYYY":
+        return value.strftime("%d/%m/%Y")
+    if date_format == "YYYY-MM-DD":
+        return value.isoformat()
+    if date_format == "Month D, YYYY":
+        return value.strftime("%B %d, %Y")
+    return value.strftime("%m/%d/%Y")
+
+
 def render(request: Request, template_name: str, context: dict, status_code: int = 200):
     with Session(engine) as session:
         theme = get_current_theme(session)
+        localization_settings = get_localization_settings(session)
     base_context = {
         "request": request,
         "app_name": APP_NAME,
         "app_env": APP_ENV,
         "current_theme": theme,
+        "current_time_zone": localization_settings["time_zone"],
+        "localization_settings": localization_settings,
     }
     base_context.update(context)
     return templates.TemplateResponse(template_name, base_context, status_code=status_code)
@@ -439,18 +566,97 @@ def estimate_label(minutes: int) -> str:
     return f"{hours}h" if mins == 0 else f"{hours}h {mins}m"
 
 
+def priority_rank(priority: str) -> int:
+    return {"Critical": 0, "High": 1, "Normal": 2, "Low": 3}.get(priority, 4)
+
+
+def first_lookup_name(lookups: dict[str, list[LookupOption]], group_name: str, fallback: str) -> str:
+    options = lookups.get(group_name, [])
+    return options[0].name if options else fallback
+
+
+def due_status_label(task: Task, today: date) -> str:
+    if not task.due_date:
+        return "No Due Date"
+    if task.due_date < today:
+        return "Overdue"
+    if task.due_date == today:
+        return "Today"
+    if task.due_date <= today + timedelta(days=7):
+        return "Due Soon"
+    return task.due_date.strftime("%b %d")
+
+
 @app.get("/")
 def dashboard(request: Request):
     with Session(engine) as session:
         projects = get_projects(session)
         tasks = get_active_tasks(session)
         pmap = task_project_map(session)
+        lookups = get_all_lookups(session)
+        localization_settings = get_localization_settings(session)
+        now = current_app_datetime(session)
 
-    active_tasks = [t for t in tasks if t.status != "Complete"]
-    complete_tasks = [t for t in tasks if t.status == "Complete"]
-    today = date.today()
+    active_tasks = [t for t in tasks if t.status != "Complete" and not (t.project_id and pmap.get(t.project_id) and pmap[t.project_id].is_archived)]
+    complete_tasks = [t for t in tasks if t.status == "Complete" and not (t.project_id and pmap.get(t.project_id) and pmap[t.project_id].is_archived)]
+    today = now.date()
+    tomorrow = today + timedelta(days=1)
+    week_end = today + timedelta(days=7)
+    if 5 <= now.hour < 12:
+        greeting = "Good Morning"
+    elif now.hour < 17:
+        greeting = "Good Afternoon"
+    else:
+        greeting = "Good Evening"
+
+    due_today = [t for t in active_tasks if t.due_date == today]
+    due_tomorrow = [t for t in active_tasks if t.due_date == tomorrow]
     overdue = [t for t in active_tasks if t.due_date and t.due_date < today]
-    due_week = [t for t in active_tasks if t.due_date and today <= t.due_date <= today + timedelta(days=7)]
+    due_week = [t for t in active_tasks if t.due_date and today <= t.due_date <= week_end]
+    upcoming = [t for t in active_tasks if t.due_date and today <= t.due_date <= week_end]
+    high_priority = [t for t in active_tasks if t.priority in {"Critical", "High"} and t not in overdue]
+
+    focus_tasks = overdue + due_today
+    if not due_today:
+        focus_tasks += [t for t in high_priority if t not in focus_tasks]
+    focus_tasks = sorted(
+        focus_tasks,
+        key=lambda t: (
+            0 if t.due_date and t.due_date < today else 1,
+            t.due_date or date.max,
+            priority_rank(t.priority),
+            t.title.lower(),
+        ),
+    )[:8]
+
+    upcoming_overdue = sorted(
+        overdue + upcoming,
+        key=lambda t: (
+            0 if t.due_date and t.due_date < today else 1,
+            t.due_date or date.max,
+            priority_rank(t.priority),
+            t.title.lower(),
+        ),
+    )[:12]
+
+    project_cards = []
+    for project in projects:
+        project_tasks = [t for t in tasks if t.project_id == project.id]
+        total_tasks = len(project_tasks)
+        completed_count = len([t for t in project_tasks if t.status == "Complete"])
+        progress = round((completed_count / total_tasks) * 100) if total_tasks else 0
+        project_cards.append(
+            {
+                "project": project,
+                "total_tasks": total_tasks,
+                "completed_count": completed_count,
+                "progress": progress,
+            }
+        )
+
+    recent_created = sorted(tasks, key=lambda t: t.created_at, reverse=True)[:5]
+    recent_completed = sorted(complete_tasks, key=lambda t: t.created_at, reverse=True)[:5]
+    today_estimate_minutes = sum(t.estimate_minutes for t in due_today)
 
     completion = round((len(complete_tasks) / len(tasks)) * 100) if tasks else 0
 
@@ -458,15 +664,36 @@ def dashboard(request: Request):
         request,
         "dashboard.html",
         {
+            "greeting": greeting,
+            "current_date_label": format_date_for_setting(now.date(), localization_settings["date_format"]),
             "projects": projects,
+            "project_cards": project_cards,
             "tasks": tasks,
             "active_tasks": active_tasks,
             "complete_tasks": complete_tasks,
+            "due_today": due_today,
+            "due_tomorrow": due_tomorrow,
             "overdue": overdue,
             "due_week": sorted(due_week, key=lambda t: t.due_date or date.max),
+            "upcoming_overdue": upcoming_overdue,
+            "focus_tasks": focus_tasks,
+            "recent_created": recent_created,
+            "recent_completed": recent_completed,
+            "planner_counts": {
+                "today": len(due_today),
+                "tomorrow": len(due_tomorrow),
+                "week": len(due_week),
+            },
+            "today_estimate_minutes": today_estimate_minutes,
             "completion": completion,
             "pmap": pmap,
+            "lookups": lookups,
+            "quick_add_defaults": {
+                "category": first_lookup_name(lookups, "task_category", "Assembly"),
+                "phase": first_lookup_name(lookups, "phase", "Planning"),
+            },
             "estimate_label": estimate_label,
+            "due_status_label": lambda task: due_status_label(task, today),
         },
     )
 
@@ -584,6 +811,7 @@ def create_task(
     estimate_minutes: int = Form(30),
     dependency: str = Form(""),
     notes: str = Form(""),
+    next_url: str = Form("/tasks"),
 ):
     with Session(engine) as session:
         task = Task(
@@ -601,7 +829,7 @@ def create_task(
         session.add(task)
         session.commit()
         logger.info("Created task id=%s title=%s", task.id, task.title)
-    return RedirectResponse("/tasks", status_code=303)
+    return RedirectResponse(next_url if next_url.startswith("/") else "/tasks", status_code=303)
 
 
 @app.get("/tasks/{task_id}/edit")
@@ -702,8 +930,13 @@ def planner_page(request: Request, start: str = ""):
     if start:
         start_date = date.fromisoformat(start)
     else:
-        today = date.today()
-        start_date = today - timedelta(days=(today.weekday() + 1) % 7)
+        with Session(engine) as session:
+            today = current_app_datetime(session).date()
+            week_starts_on = get_localization_settings(session)["week_starts_on"]
+        if week_starts_on == "Monday":
+            start_date = today - timedelta(days=today.weekday())
+        else:
+            start_date = today - timedelta(days=(today.weekday() + 1) % 7)
 
     end_date = start_date + timedelta(days=27)
 
@@ -749,6 +982,7 @@ def planner_page(request: Request, start: str = ""):
 def settings_page(request: Request):
     with Session(engine) as session:
         lookups = get_all_lookups(session, active_only=False)
+        localization_settings = get_localization_settings(session)
     return render(
         request,
         "settings.html",
@@ -756,6 +990,12 @@ def settings_page(request: Request):
             "lookups": lookups,
             "lookup_groups": LOOKUP_GROUPS,
             "backup_dir": BACKUP_DIR,
+            "localization": localization_settings,
+            "time_zone_options": TIME_ZONE_OPTIONS,
+            "date_format_options": DATE_FORMAT_OPTIONS,
+            "time_format_options": TIME_FORMAT_OPTIONS,
+            "week_start_options": WEEK_START_OPTIONS,
+            "planner_view_options": PLANNER_VIEW_OPTIONS,
         },
     )
 
@@ -971,6 +1211,44 @@ def update_lookup_option(
         session.commit()
         logger.info("Updated lookup option id=%s active=%s", option.id, option.is_active)
 
+    return RedirectResponse("/settings", status_code=303)
+
+
+@app.post("/settings/localization")
+def update_localization(
+    time_zone: str = Form(...),
+    date_format: str = Form(...),
+    time_format: str = Form(...),
+    week_starts_on: str = Form(...),
+    default_planner_view: str = Form(...),
+):
+    if not valid_time_zone_name(time_zone):
+        raise HTTPException(status_code=400, detail="Invalid time zone")
+    selected = {
+        "time_zone": time_zone,
+        "date_format": date_format,
+        "time_format": time_format,
+        "week_starts_on": week_starts_on,
+        "default_planner_view": default_planner_view,
+    }
+    allowed_values = {
+        "date_format": {value for value, _ in DATE_FORMAT_OPTIONS},
+        "time_format": {value for value, _ in TIME_FORMAT_OPTIONS},
+        "week_starts_on": {value for value, _ in WEEK_START_OPTIONS},
+        "default_planner_view": {value for value, _ in PLANNER_VIEW_OPTIONS},
+    }
+    for key, allowed in allowed_values.items():
+        if selected[key] not in allowed:
+            raise HTTPException(status_code=400, detail=f"Invalid {key.replace('_', ' ')}")
+
+    with Session(engine) as session:
+        for key, value in selected.items():
+            setting = session.get(AppSetting, key) or AppSetting(key=key, value=value)
+            setting.value = value
+            setting.updated_at = datetime.utcnow()
+            session.add(setting)
+        session.commit()
+    logger.info("Updated localization settings time_zone=%s", time_zone)
     return RedirectResponse("/settings", status_code=303)
 
 

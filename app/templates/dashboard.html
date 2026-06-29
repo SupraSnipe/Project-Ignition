@@ -1,56 +1,201 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="hero">
-  <h1>Dashboard</h1>
-  <p>A lightweight command center for your build projects.</p>
+<section class="dashboard-header">
+  <div>
+    <p class="eyebrow">{{ current_date_label }}</p>
+    <h1>{{ greeting }}</h1>
+    <p class="dashboard-summary">
+      {{ projects|length }} active projects &middot;
+      {{ active_tasks|length }} active tasks &middot;
+      {{ overdue|length }} overdue &middot;
+      {{ estimate_label(today_estimate_minutes) }} planned today
+    </p>
+  </div>
+  <div class="header-actions">
+    <a class="button secondary" href="/planner">4-Week Planner</a>
+    <a class="button" href="/tasks">Tasks</a>
+  </div>
 </section>
 
-<div class="stats">
-  <div class="stat">
-    <div class="stat-value">{{ projects|length }}</div>
-    <div class="stat-label">Projects</div>
-  </div>
-  <div class="stat">
-    <div class="stat-value">{{ active_tasks|length }}</div>
-    <div class="stat-label">Active Tasks</div>
-  </div>
-  <div class="stat danger">
-    <div class="stat-value">{{ overdue|length }}</div>
-    <div class="stat-label">Overdue</div>
-  </div>
-  <div class="stat">
-    <div class="stat-value">{{ completion }}%</div>
-    <div class="stat-label">Overall Complete</div>
-  </div>
-</div>
-
-<section class="card">
-  <h2>Due This Week</h2>
-  {% if due_week %}
-    <table>
-      <thead>
-        <tr>
-          <th>Due</th>
-          <th>Project</th>
-          <th>Task</th>
-          <th>Priority</th>
-          <th>Estimate</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for task in due_week %}
-        <tr>
-          <td>{{ task.due_date.strftime("%b %d") }}</td>
-          <td>{{ pmap.get(task.project_id).name if task.project_id in pmap else "Unassigned" }}</td>
-          <td>{{ task.title }}</td>
-          <td><span class="pill priority-{{ task.priority|lower }}">{{ task.priority }}</span></td>
-          <td>{{ estimate_label(task.estimate_minutes) }}</td>
-        </tr>
+<div class="dashboard-grid">
+  <section class="card dashboard-card focus-card">
+    <div class="section-heading">
+      <div>
+        <h2>Today's Focus</h2>
+        <p class="muted">Due now, overdue, or highest priority.</p>
+      </div>
+      <span class="pill">{{ focus_tasks|length }} tasks</span>
+    </div>
+    {% if focus_tasks %}
+      <ul class="dashboard-list">
+        {% for task in focus_tasks %}
+        <li class="dashboard-list-item">
+          <div>
+            <a class="item-title" href="/tasks/{{ task.id }}/edit">{{ task.title }}</a>
+            <div class="task-meta">
+              {{ pmap.get(task.project_id).name if task.project_id in pmap else "Unassigned" }}
+              &middot; {{ estimate_label(task.estimate_minutes) }}
+            </div>
+          </div>
+          <div class="item-badges">
+            <span class="pill priority-{{ task.priority|lower }}">{{ task.priority }}</span>
+            <span class="pill {% if due_status_label(task) == 'Overdue' %}status-danger{% endif %}">
+              {{ due_status_label(task) }}
+            </span>
+          </div>
+        </li>
         {% endfor %}
-      </tbody>
-    </table>
-  {% else %}
-    <p>No tasks due in the next 7 days.</p>
-  {% endif %}
-</section>
+      </ul>
+    {% else %}
+      <p class="empty">No focus tasks. The bench is clear for now.</p>
+    {% endif %}
+  </section>
+
+  <section class="card dashboard-card quick-add-card">
+    <h2>Quick Add</h2>
+    <form method="post" action="/tasks" class="quick-add-form">
+      <input type="hidden" name="next_url" value="/">
+      <input type="hidden" name="status" value="Not Started">
+      <input type="hidden" name="category" value="{{ quick_add_defaults.category }}">
+      <input type="hidden" name="phase" value="{{ quick_add_defaults.phase }}">
+      <label>Task Title <input name="title" required placeholder="Cut hatch doubler"></label>
+      <label>Project
+        <select name="project_id">
+          <option value="">Unassigned</option>
+          {% for project in projects %}
+            <option value="{{ project.id }}">{{ project.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div class="quick-add-row">
+        <label>Due Date <input name="due_date" type="date"></label>
+        <label>Estimate <input name="estimate_minutes" type="number" min="0" step="5" value="30"></label>
+      </div>
+      <label>Priority
+        <select name="priority">
+          {% for item in lookups.priority %}<option>{{ item.name }}</option>{% endfor %}
+        </select>
+      </label>
+      <button type="submit">Add Task</button>
+    </form>
+  </section>
+
+  <section class="card dashboard-card wide-card">
+    <div class="section-heading">
+      <h2>Active Projects</h2>
+      <a class="button secondary" href="/projects">Projects</a>
+    </div>
+    {% if project_cards %}
+      <div class="dashboard-project-grid">
+        {% for item in project_cards %}
+        <article class="project-progress-card">
+          <div class="section-heading">
+            <div>
+              <h3>{{ item.project.name }}</h3>
+              {% if item.project.target_date %}
+              <p class="muted">Target: {{ item.project.target_date.strftime("%b %d, %Y") }}</p>
+              {% endif %}
+            </div>
+            <a class="button secondary compact-button" href="/projects/{{ item.project.id }}/edit">Edit</a>
+          </div>
+          <div class="progress-row">
+            <span>{{ item.completed_count }} / {{ item.total_tasks }} complete</span>
+            <strong>{{ item.progress }}%</strong>
+          </div>
+          <div class="progress-bar" aria-label="{{ item.progress }} percent complete">
+            <span style="width: {{ item.progress }}%"></span>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="empty">No active projects yet.</p>
+    {% endif %}
+  </section>
+
+  <section class="card dashboard-card">
+    <h2>Upcoming / Overdue</h2>
+    {% if upcoming_overdue %}
+      <ul class="dashboard-list compact-list">
+        {% for task in upcoming_overdue %}
+        <li class="dashboard-list-item">
+          <div>
+            <a class="item-title" href="/tasks/{{ task.id }}/edit">{{ task.title }}</a>
+            <div class="task-meta">
+              {{ task.due_date.strftime("%b %d") if task.due_date else "No date" }}
+              &middot; {{ pmap.get(task.project_id).name if task.project_id in pmap else "Unassigned" }}
+            </div>
+          </div>
+          <span class="pill priority-{{ task.priority|lower }}">{{ task.priority }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="empty">No overdue tasks or upcoming due dates.</p>
+    {% endif %}
+  </section>
+
+  <section class="card dashboard-card">
+    <div class="section-heading">
+      <h2>Planner Snapshot</h2>
+      <a class="button secondary compact-button" href="/planner">Open</a>
+    </div>
+    <div class="snapshot-grid">
+      <div>
+        <strong>{{ planner_counts.today }}</strong>
+        <span>Today</span>
+      </div>
+      <div>
+        <strong>{{ planner_counts.tomorrow }}</strong>
+        <span>Tomorrow</span>
+      </div>
+      <div>
+        <strong>{{ planner_counts.week }}</strong>
+        <span>This Week</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="card dashboard-card wide-card">
+    <h2>Recent Activity</h2>
+    <div class="activity-grid">
+      <div>
+        <h3>Recently Created</h3>
+        {% if recent_created %}
+          <ul class="dashboard-list compact-list">
+            {% for task in recent_created %}
+            <li class="dashboard-list-item">
+              <div>
+                <a class="item-title" href="/tasks/{{ task.id }}/edit">{{ task.title }}</a>
+                <div class="task-meta">{{ task.created_at.strftime("%b %d, %Y") }}</div>
+              </div>
+              <span class="pill priority-{{ task.priority|lower }}">{{ task.priority }}</span>
+            </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="empty">No tasks created yet.</p>
+        {% endif %}
+      </div>
+      <div>
+        <h3>Recent Completions</h3>
+        {% if recent_completed %}
+          <ul class="dashboard-list compact-list">
+            {% for task in recent_completed %}
+            <li class="dashboard-list-item">
+              <div>
+                <a class="item-title" href="/tasks/{{ task.id }}/edit">{{ task.title }}</a>
+                <div class="task-meta">{{ pmap.get(task.project_id).name if task.project_id in pmap else "Unassigned" }}</div>
+              </div>
+              <span class="pill">Complete</span>
+            </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="empty">No completed tasks yet.</p>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+</div>
 {% endblock %}

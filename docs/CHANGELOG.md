@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.0-alpha - Unreleased
+
+### Added
+
+- Dashboard v2 command-center layout with greeting, date, active work summary, focus list, project progress, upcoming/overdue tasks, quick add, recent activity, and planner snapshot.
+- Dashboard quick-add task flow that uses database-driven project and priority options and returns to the dashboard after creation.
+- Database-backed time and localization settings for time zone, date format, time format, week start, and default planner view.
+
+### Changed
+
+- Dashboard widgets now exclude archived tasks and archived projects from normal command-center views.
+
 ## 0.4.0-alpha - 2026-06-28
 
 ### Added

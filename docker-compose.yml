@@ -11,6 +11,7 @@ services:
       BACKUP_DIR: /app/data/backups
       LOG_LEVEL: INFO
       DEFAULT_THEME: light
+      APP_TIME_ZONE: America/Denver
     volumes:
       - ./data:/app/data
     restart: unless-stopped

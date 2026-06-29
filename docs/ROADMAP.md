@@ -8,11 +8,11 @@
 
 # Current Status
 
-**Current Version:** `0.4.0-alpha`
+**Current Version:** `0.5.0-alpha`
 
 **Current Milestone:** Milestone 1 – Planning & Execution
 
-**Current Focus:** Transform the dashboard into the central command center for daily work.
+**Current Focus:** Dashboard v2 command center.
 
 ---
 
@@ -70,16 +70,20 @@ Transform Ignition from a project database into a daily productivity tool.
 
 ### Dashboard becomes the command center.
 
+Status: In progress
+
+Dashboard v2 now uses the configured application time zone for greetings and local date calculations. Work schedule logic remains out of scope for this phase.
+
 Features
 
-* [ ] Today's Focus
-* [ ] Upcoming Tasks
-* [ ] Overdue Tasks
-* [ ] Estimated Work Time
-* [ ] Recently Completed Tasks
-* [ ] Quick Add Widget
-* [ ] Project Progress Cards
-* [ ] Dashboard Customization
+* [x] Today's Focus
+* [x] Upcoming Tasks
+* [x] Overdue Tasks
+* [x] Estimated Work Time
+* [x] Recently Completed Tasks
+* [x] Quick Add Widget
+* [x] Project Progress Cards
+* [ ] Dashboard Refinement
 
 ---
 

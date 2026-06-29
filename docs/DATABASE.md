@@ -134,6 +134,17 @@ Current groups:
 Current keys:
 
 - theme
+- time_zone
+- date_format
+- time_format
+- week_starts_on
+- default_planner_view
+
+Localization settings are stored in `appsetting` so users can change them from
+the Settings page without editing environment variables. `time_zone`,
+`date_format`, and `week_starts_on` are currently applied to dashboard and
+planner date handling. `time_format` is stored for dashboard views that display
+times, and `default_planner_view` is stored for future planner behavior.
 
 ### schema_migration
 

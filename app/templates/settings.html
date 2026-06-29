@@ -6,6 +6,51 @@
 </section>
 
 <section class="card">
+  <h2>Time &amp; Localization</h2>
+  <form method="post" action="/settings/localization" class="form-grid">
+    <label>Time Zone
+      <select name="time_zone">
+        {% for value, label in time_zone_options %}
+          <option value="{{ value }}" {% if value == localization.time_zone %}selected{% endif %}>{{ label }} ({{ value }})</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Date Format
+      <select name="date_format">
+        {% for value, label in date_format_options %}
+          <option value="{{ value }}" {% if value == localization.date_format %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Time Format
+      <select name="time_format">
+        {% for value, label in time_format_options %}
+          <option value="{{ value }}" {% if value == localization.time_format %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Week Starts On
+      <select name="week_starts_on">
+        {% for value, label in week_start_options %}
+          <option value="{{ value }}" {% if value == localization.week_starts_on %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Default Planner View
+      <select name="default_planner_view">
+        {% for value, label in planner_view_options %}
+          <option value="{{ value }}" {% if value == localization.default_planner_view %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="form-actions">
+      <button type="submit">Save Localization</button>
+      <span class="muted">Dashboard dates use these settings. Planner view preference is stored for future planner updates.</span>
+    </div>
+  </form>
+</section>
+
+<section class="card">
   <h2>Add Option</h2>
   <form method="post" action="/settings/lookups" class="form-grid">
     <label>Group
