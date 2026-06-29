@@ -10,7 +10,7 @@ from typing import Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Field, Session, SQLModel, create_engine, select
@@ -153,11 +153,19 @@ class Task(SQLModel, table=True):
     dependency: str = ""
     is_archived: bool = False
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    completed_at: Optional[datetime] = None
 
 
 class AppSetting(SQLModel, table=True):
     key: str = Field(primary_key=True)
     value: str
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class WorkspaceNote(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    note_date: date = Field(index=True, unique=True)
+    content: str = ""
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -377,6 +385,26 @@ def run_migrations() -> None:
             logger.info("Applied migration 0002_create_app_settings")
             record_migration(connection, "0002_create_app_settings")
 
+        if not migration_applied(connection, "0003_workspace_notes_and_task_completed_at"):
+            if table_exists(connection, "task") and not column_exists(connection, "task", "completed_at"):
+                connection.execute("ALTER TABLE task ADD COLUMN completed_at DATETIME")
+                logger.info("Applied task completed_at migration")
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS workspacenote (
+                    id INTEGER PRIMARY KEY,
+                    note_date DATE NOT NULL UNIQUE,
+                    content TEXT NOT NULL DEFAULT '',
+                    updated_at DATETIME NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS ix_workspacenote_note_date ON workspacenote (note_date)"
+            )
+            logger.info("Applied migration 0003_workspace_notes_and_task_completed_at")
+            record_migration(connection, "0003_workspace_notes_and_task_completed_at")
+
         connection.commit()
     logger.info("Database migrations complete")
 
@@ -508,6 +536,12 @@ def format_date_for_setting(value: date, date_format: str) -> str:
     return value.strftime("%m/%d/%Y")
 
 
+def format_time_for_setting(value: datetime, time_format: str) -> str:
+    if time_format == "24-hour":
+        return value.strftime("%H:%M")
+    return value.strftime("%I:%M %p").lstrip("0")
+
+
 def render(request: Request, template_name: str, context: dict, status_code: int = 200):
     with Session(engine) as session:
         theme = get_current_theme(session)
@@ -587,6 +621,59 @@ def due_status_label(task: Task, today: date) -> str:
     return task.due_date.strftime("%b %d")
 
 
+def greeting_for_hour(hour: int) -> str:
+    if 5 <= hour < 12:
+        return "Good Morning"
+    if hour < 17:
+        return "Good Afternoon"
+    return "Good Evening"
+
+
+def active_task_filter(tasks: list[Task], pmap: dict[int, Project]) -> list[Task]:
+    return [
+        task
+        for task in tasks
+        if task.status != "Complete"
+        and not (task.project_id and pmap.get(task.project_id) and pmap[task.project_id].is_archived)
+    ]
+
+
+def completed_task_filter(tasks: list[Task], pmap: dict[int, Project]) -> list[Task]:
+    return [
+        task
+        for task in tasks
+        if task.status == "Complete"
+        and not (task.project_id and pmap.get(task.project_id) and pmap[task.project_id].is_archived)
+    ]
+
+
+def workspace_focus_tasks(active_tasks: list[Task], today: date) -> list[Task]:
+    # Future hook: replace this rules-based list with Ignition Engine recommendations.
+    # TODO: include task dependencies when dependency modeling is promoted.
+    # TODO: include time tracking and work-session state when those modules exist.
+    week_end = today + timedelta(days=7)
+    candidates = [
+        task
+        for task in active_tasks
+        if (task.due_date and task.due_date <= week_end) or task.priority in {"Critical", "High"}
+    ]
+    return sorted(
+        candidates,
+        key=lambda task: (
+            0 if task.due_date and task.due_date < today else 1,
+            0 if task.due_date == today else 1,
+            priority_rank(task.priority),
+            task.due_date or date.max,
+            task.title.lower(),
+        ),
+    )
+
+
+def get_workspace_note(session: Session, note_date: date) -> WorkspaceNote:
+    note = session.exec(select(WorkspaceNote).where(WorkspaceNote.note_date == note_date)).first()
+    return note or WorkspaceNote(note_date=note_date)
+
+
 @app.get("/")
 def dashboard(request: Request):
     with Session(engine) as session:
@@ -597,17 +684,12 @@ def dashboard(request: Request):
         localization_settings = get_localization_settings(session)
         now = current_app_datetime(session)
 
-    active_tasks = [t for t in tasks if t.status != "Complete" and not (t.project_id and pmap.get(t.project_id) and pmap[t.project_id].is_archived)]
-    complete_tasks = [t for t in tasks if t.status == "Complete" and not (t.project_id and pmap.get(t.project_id) and pmap[t.project_id].is_archived)]
+    active_tasks = active_task_filter(tasks, pmap)
+    complete_tasks = completed_task_filter(tasks, pmap)
     today = now.date()
     tomorrow = today + timedelta(days=1)
     week_end = today + timedelta(days=7)
-    if 5 <= now.hour < 12:
-        greeting = "Good Morning"
-    elif now.hour < 17:
-        greeting = "Good Afternoon"
-    else:
-        greeting = "Good Evening"
+    greeting = greeting_for_hour(now.hour)
 
     due_today = [t for t in active_tasks if t.due_date == today]
     due_tomorrow = [t for t in active_tasks if t.due_date == tomorrow]
@@ -696,6 +778,172 @@ def dashboard(request: Request):
             "due_status_label": lambda task: due_status_label(task, today),
         },
     )
+
+
+@app.get("/workspace")
+def workspace_page(request: Request):
+    with Session(engine) as session:
+        tasks = get_active_tasks(session)
+        pmap = task_project_map(session)
+        localization_settings = get_localization_settings(session)
+        now = current_app_datetime(session)
+        today = now.date()
+        note = get_workspace_note(session, today)
+
+    active_tasks = active_task_filter(tasks, pmap)
+    complete_tasks = completed_task_filter(tasks, pmap)
+    focus_tasks = workspace_focus_tasks(active_tasks, today)
+    overdue = [task for task in active_tasks if task.due_date and task.due_date < today]
+    due_today = [task for task in active_tasks if task.due_date == today]
+    today_workload_tasks = sorted(
+        overdue + due_today,
+        key=lambda task: (
+            0 if task.due_date and task.due_date < today else 1,
+            task.due_date or date.max,
+            priority_rank(task.priority),
+            task.title.lower(),
+        ),
+    )
+    completed_today = [
+        task
+        for task in complete_tasks
+        if task.completed_at and task.completed_at.date() == today
+    ]
+    progress_total = len(today_workload_tasks) + len(completed_today)
+    progress_percent = round((len(completed_today) / progress_total) * 100) if progress_total else 0
+    estimated_remaining_minutes = sum(task.estimate_minutes for task in today_workload_tasks)
+    tomorrow = today + timedelta(days=1)
+    week_end = today + timedelta(days=7)
+    tomorrow_tasks = sorted(
+        [task for task in active_tasks if task.due_date == tomorrow],
+        key=lambda task: (priority_rank(task.priority), task.title.lower()),
+    )
+    next_week_tasks = sorted(
+        [task for task in active_tasks if task.due_date and tomorrow < task.due_date <= week_end],
+        key=lambda task: (task.due_date or date.max, priority_rank(task.priority), task.title.lower()),
+    )
+    upcoming_estimate_minutes = sum(task.estimate_minutes for task in tomorrow_tasks + next_week_tasks)
+
+    return render(
+        request,
+        "workspace.html",
+        {
+            "title": "Ignite",
+            "greeting": greeting_for_hour(now.hour),
+            "current_date_label": format_date_for_setting(today, localization_settings["date_format"]),
+            "today": today,
+            "focus_tasks": focus_tasks,
+            "today_workload_tasks": today_workload_tasks,
+            "completed_today": completed_today,
+            "overdue": overdue,
+            "summary": {
+                "active_tasks": len(active_tasks),
+                "completed_today": len(completed_today),
+                "overdue": len(overdue),
+                "estimated_remaining_minutes": estimated_remaining_minutes,
+                "completion_percent": progress_percent,
+                "progress_total": progress_total,
+            },
+            "tomorrow_tasks": tomorrow_tasks,
+            "next_week_tasks": next_week_tasks[:10],
+            "upcoming_estimate_minutes": upcoming_estimate_minutes,
+            "note": note,
+            "pmap": pmap,
+            "estimate_label": estimate_label,
+            "due_status_label": lambda task: due_status_label(task, today),
+            "format_task_date": lambda value: format_date_for_setting(value, localization_settings["date_format"]) if value else "No due date",
+        },
+    )
+
+
+@app.post("/workspace/tasks/{task_id}/complete")
+def complete_workspace_task(task_id: int, request: Request, next_url: str = Form("/workspace")):
+    with Session(engine) as session:
+        task = session.get(Task, task_id)
+        if not task or task.is_archived:
+            raise HTTPException(status_code=404)
+        task.status = "Complete"
+        task.completed_at = current_app_datetime(session).replace(tzinfo=None)
+        session.add(task)
+        session.commit()
+        logger.info("Completed task from workspace id=%s title=%s", task.id, task.title)
+
+    if request.headers.get("x-requested-with") == "fetch":
+        return JSONResponse({"ok": True, "task_id": task_id})
+    return RedirectResponse(next_url if next_url.startswith("/") else "/workspace", status_code=303)
+
+
+@app.post("/workspace/notes")
+def update_workspace_note(content: str = Form("")):
+    with Session(engine) as session:
+        today = current_app_datetime(session).date()
+        note = session.exec(select(WorkspaceNote).where(WorkspaceNote.note_date == today)).first()
+        if not note:
+            note = WorkspaceNote(note_date=today)
+        note.content = content
+        note.updated_at = datetime.utcnow()
+        session.add(note)
+        session.commit()
+    return JSONResponse({"ok": True})
+
+
+@app.get("/workspace/journal")
+def workspace_journal_page(request: Request):
+    with Session(engine) as session:
+        localization_settings = get_localization_settings(session)
+        notes = session.exec(select(WorkspaceNote).order_by(WorkspaceNote.note_date.desc())).all()
+
+    return render(
+        request,
+        "journal.html",
+        {
+            "title": "Journal",
+            "notes": notes,
+            "format_note_date": lambda value: format_date_for_setting(value, localization_settings["date_format"]),
+            "format_note_time": lambda value: format_time_for_setting(value, localization_settings["time_format"]),
+        },
+    )
+
+
+@app.get("/workspace/journal/{note_date}")
+def workspace_journal_detail_page(request: Request, note_date: str):
+    try:
+        selected_date = date.fromisoformat(note_date)
+    except ValueError:
+        raise HTTPException(status_code=404)
+
+    with Session(engine) as session:
+        localization_settings = get_localization_settings(session)
+        note = get_workspace_note(session, selected_date)
+
+    return render(
+        request,
+        "journal_detail.html",
+        {
+            "title": "Journal Note",
+            "note": note,
+            "note_date": selected_date,
+            "note_date_label": format_date_for_setting(selected_date, localization_settings["date_format"]),
+        },
+    )
+
+
+@app.post("/workspace/journal/{note_date}")
+def update_workspace_journal_note(note_date: str, content: str = Form("")):
+    try:
+        selected_date = date.fromisoformat(note_date)
+    except ValueError:
+        raise HTTPException(status_code=404)
+
+    with Session(engine) as session:
+        note = session.exec(select(WorkspaceNote).where(WorkspaceNote.note_date == selected_date)).first()
+        if not note:
+            note = WorkspaceNote(note_date=selected_date)
+        note.content = content
+        note.updated_at = datetime.utcnow()
+        session.add(note)
+        session.commit()
+    return RedirectResponse(f"/workspace/journal/{selected_date.isoformat()}", status_code=303)
 
 
 @app.get("/projects")
@@ -826,6 +1074,8 @@ def create_task(
             dependency=dependency.strip(),
             notes=notes.strip(),
         )
+        if task.status == "Complete":
+            task.completed_at = current_app_datetime(session).replace(tzinfo=None)
         session.add(task)
         session.commit()
         logger.info("Created task id=%s title=%s", task.id, task.title)
@@ -875,7 +1125,12 @@ def update_task(
         task.phase = phase
         task.category = category
         task.priority = priority
+        previous_status = task.status
         task.status = status
+        if task.status == "Complete" and previous_status != "Complete" and not task.completed_at:
+            task.completed_at = current_app_datetime(session).replace(tzinfo=None)
+        if task.status != "Complete":
+            task.completed_at = None
         task.due_date = parse_optional_date(due_date)
         task.estimate_minutes = estimate_minutes
         task.dependency = dependency.strip()
@@ -893,6 +1148,10 @@ def update_task_status(task_id: int, status: str = Form(...)):
         if not task:
             raise HTTPException(status_code=404)
         task.status = status
+        if status == "Complete" and not task.completed_at:
+            task.completed_at = current_app_datetime(session).replace(tzinfo=None)
+        if status != "Complete":
+            task.completed_at = None
         session.add(task)
         session.commit()
         logger.info("Updated task status id=%s status=%s", task.id, task.status)

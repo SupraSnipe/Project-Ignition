@@ -44,6 +44,10 @@ the first workflows settle.
 - Time and localization settings are stored in SQLite through `appsetting`.
   The dashboard uses the configured IANA time zone and date format instead of
   relying on the Docker host or server time zone.
+- Workspace v1 lives at `/workspace` and is the primary daily work surface. It
+  currently uses rules-based focus selection and leaves clear room for future
+  Ignition Engine recommendations, time tracking, dependencies, and work
+  sessions.
 
 ## Intended Long-Term Structure
 

@@ -102,9 +102,12 @@ of requiring the database to be deleted.
 - dependency
 - is_archived
 - created_at
+- completed_at
 
 Archived tasks are hidden from normal task lists, dashboard counts, and the
 planner. They remain readable through the archived task view and can be restored.
+`completed_at` is set when a task is marked complete and is used by Workspace
+progress summaries.
 
 ### lookupoption
 
@@ -145,6 +148,16 @@ the Settings page without editing environment variables. `time_zone`,
 `date_format`, and `week_starts_on` are currently applied to dashboard and
 planner date handling. `time_format` is stored for dashboard views that display
 times, and `default_planner_view` is stored for future planner behavior.
+
+### workspacenote
+
+- id
+- note_date
+- content
+- updated_at
+
+Workspace notes are plain-text daily scratch pads. There is one note per local
+date, based on the configured application time zone.
 
 ### schema_migration
 

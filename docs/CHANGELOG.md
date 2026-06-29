@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.0-alpha - Unreleased
+
+### Added
+
+- Workspace v1 ("Ignite") page at `/workspace` with focused work cards, workspace summary, upcoming tasks, and progress.
+- Navigation link for Ignite and dashboard entry point to the workspace.
+- One-note-per-day workspace scratch pad with SQLite persistence and browser autosave.
+- Journal / Notes Archive for viewing and editing previous Ignite workspace notes.
+- In-place workspace task completion with completion timestamps for progress tracking.
+
+### Changed
+
+- Ignite estimated remaining time now counts only active overdue and due-today tasks; upcoming-week effort is shown separately. Completed Today relies on tasks that have a completion timestamp.
+
 ## 0.5.0-alpha - Unreleased
 
 ### Added

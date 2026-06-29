@@ -8,11 +8,11 @@
 
 # Current Status
 
-**Current Version:** `0.5.0-alpha`
+**Current Version:** `0.6.0-alpha`
 
 **Current Milestone:** Milestone 1 – Planning & Execution
 
-**Current Focus:** Dashboard v2 command center.
+**Current Focus:** Workspace v1 ("Ignite").
 
 ---
 
@@ -66,13 +66,9 @@ Transform Ignition from a project database into a daily productivity tool.
 
 ---
 
-## Phase 1 – Dashboard v2
+## Phase 1 – Dashboard v2 ✅
 
-### Dashboard becomes the command center.
-
-Status: In progress
-
-Dashboard v2 now uses the configured application time zone for greetings and local date calculations. Work schedule logic remains out of scope for this phase.
+Dashboard v2 is the command center for seeing what deserves attention.
 
 Features
 
@@ -83,38 +79,58 @@ Features
 * [x] Recently Completed Tasks
 * [x] Quick Add Widget
 * [x] Project Progress Cards
-* [ ] Dashboard Refinement
+* [x] Configured Time Zone Support
 
 ---
 
-## Phase 2 – Daily Workflow
+## Phase 2 – Workspace (🚀 Ignite) ✅
+
+Ignite is the daily workbench for starting meaningful work.
 
 Features
 
-* [ ] Today View
-* [ ] This Week View
-* [ ] Improved Planner Integration
+* [x] Workspace v1 ("Ignite")
+* [x] Journal / Notes Archive
+* [x] Today's Focus
+* [x] Today's Notes
+* [x] Quick Complete
+* [x] Workspace Progress
+
+---
+
+## Phase 3 – Planning Experience
+
+Features
+
+* [ ] Planner Views
 * [ ] Better Calendar Navigation
-* [ ] Quick Add Dialog
+* [ ] Planner Integration
 * [ ] Advanced Filtering
-* [ ] Global Search
 
 ---
 
-## Phase 3 – Task Intelligence
+## Phase 4 – Capture & Search
 
 Features
 
-* [ ] Task Dependencies
-* [ ] Estimated vs Actual Time
-* [ ] Time Tracking
-* [ ] Task Ordering
-* [ ] Blocking Tasks
-* [ ] Project Completion Calculation
+* [ ] Global Search
+* [ ] Quick Add Dialog
+* [ ] Command Palette
 
 ---
 
-## Phase 4 – Ignition Engine v1
+## Phase 5 – Task Intelligence
+
+Features
+
+* [ ] Dependencies
+* [ ] Time Tracking
+* [ ] Estimated vs Actual
+* [ ] Project Completion
+
+---
+
+## Phase 6 – Ignition Engine v1
 
 Purpose
 

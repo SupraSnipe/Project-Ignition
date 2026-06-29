@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero journal-hero">
+  <div>
+    <h1>Journal</h1>
+    <p>Plain-text archive of Ignite workspace notes.</p>
+  </div>
+  <div class="hero-actions">
+    <a class="button secondary" href="/workspace">Back to Ignite</a>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Workspace Notes</h2>
+  {% if notes %}
+    <div class="journal-list">
+      {% for note in notes %}
+      <article class="journal-entry">
+        <div class="journal-entry-header">
+          <div>
+            <h3>{{ format_note_date(note.note_date) }}</h3>
+            <p class="muted">Updated {{ format_note_time(note.updated_at) }}</p>
+          </div>
+          <a class="button secondary compact-button" href="/workspace/journal/{{ note.note_date.isoformat() }}">View / Edit</a>
+        </div>
+        {% if note.content %}
+          <p class="journal-preview">{{ note.content }}</p>
+        {% else %}
+          <p class="empty">No note content yet.</p>
+        {% endif %}
+      </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="empty">No journal notes yet. Today's Ignite note will appear here after it saves.</p>
+  {% endif %}
+</section>
+{% endblock %}
