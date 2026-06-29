@@ -28,6 +28,27 @@ app/
 └── templates/
 ```
 
+Most application code still lives in `app/main.py`. That is intentional for
+the current foundation milestone so the project stays easy to inspect while
+the first workflows settle.
+
+## Foundation Services
+
+- Configuration is read from environment variables and, optionally, a simple
+  config file pointed to by `APP_CONFIG_FILE`.
+- Startup runs lightweight SQLite migrations before `SQLModel.metadata.create_all`.
+- Logging uses Python logging and writes to stdout for Docker compatibility.
+- Error handlers render custom 404 and 500 templates without exposing stack traces.
+- Theme support is global and app-wide for now. `DEFAULT_THEME` seeds the first
+  theme setting, and the header toggle updates the stored app setting.
+- Time and localization settings are stored in SQLite through `appsetting`.
+  The dashboard uses the configured IANA time zone and date format instead of
+  relying on the Docker host or server time zone.
+- Workspace v1 lives at `/workspace` and is the primary daily work surface. It
+  currently uses rules-based focus selection and leaves clear room for future
+  Ignition Engine recommendations, time tracking, dependencies, and work
+  sessions.
+
 ## Intended Long-Term Structure
 
 ```text

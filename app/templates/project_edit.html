@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <h1>Edit Project</h1>
+  <p>Update project details and return to the active project list.</p>
+</section>
+
+<section class="card">
+  <form method="post" action="/projects/{{ project.id }}/edit" class="form-grid">
+    <label>Name <input name="name" required value="{{ project.name }}"></label>
+    <label>Target Date <input name="target_date" type="date" value="{{ project.target_date.isoformat() if project.target_date else '' }}"></label>
+    <label class="span-2">Description <textarea name="description" rows="4">{{ project.description }}</textarea></label>
+    <label class="checkbox-label span-2">
+      <input name="is_archived" type="checkbox" {% if project.is_archived %}checked{% endif %}>
+      Archived
+    </label>
+    <div class="form-actions span-2">
+      <button type="submit">Save Project</button>
+      <a class="button secondary" href="/projects">Cancel</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

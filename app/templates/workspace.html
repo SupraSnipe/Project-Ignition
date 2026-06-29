@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="workspace-hero">
+  <div>
+    <p class="eyebrow">{{ greeting }} · {{ current_date_label }}</p>
+    <h1>🚀 Ignite</h1>
+    <p>Today's Workspace</p>
+    <div class="hero-actions">
+      <a class="button secondary" href="/workspace/journal">Journal</a>
+    </div>
+  </div>
+  <div class="workspace-progress">
+    <span>{{ summary.completion_percent }}%</span>
+    <div class="progress-bar" aria-label="{{ summary.completion_percent }} percent complete">
+      <span style="width: {{ summary.completion_percent }}%"></span>
+    </div>
+    <small>{{ summary.completed_today }} / {{ summary.progress_total }} tasks · {{ estimate_label(summary.estimated_remaining_minutes) }} remaining</small>
+  </div>
+</section>
+
+<div class="workspace-shell">
+  <main class="workspace-main">
+    <section class="workspace-panel">
+      <div class="section-heading">
+        <div>
+          <h2>Today's Focus</h2>
+          <p class="muted">Overdue, due today, high priority, then due soon.</p>
+        </div>
+        <span class="pill">{{ focus_tasks|length }} active</span>
+      </div>
+
+      {% if focus_tasks %}
+        <div class="workspace-task-stack">
+          {% for task in focus_tasks %}
+          <article class="workspace-task" id="workspace-task-{{ task.id }}">
+            <div class="workspace-task-body">
+              <div>
+                <h3>{{ task.title }}</h3>
+                <p class="task-meta">
+                  {{ pmap.get(task.project_id).name if task.project_id in pmap else "Unassigned" }}
+                  &middot; {{ estimate_label(task.estimate_minutes) }}
+                  &middot; {{ task.status }}
+                </p>
+              </div>
+              <div class="item-badges">
+                <span class="pill priority-{{ task.priority|lower }}">{{ task.priority }}</span>
+                <span class="pill {% if due_status_label(task) == 'Overdue' %}status-danger{% endif %}">{{ due_status_label(task) }}</span>
+              </div>
+            </div>
+            <div class="workspace-task-meta">
+              <span>Due {{ format_task_date(task.due_date) }}</span>
+            </div>
+            <div class="workspace-actions">
+              <form method="post" action="/workspace/tasks/{{ task.id }}/complete" class="inline-form workspace-complete-form">
+                <input type="hidden" name="next_url" value="/workspace">
+                <button type="submit">✔ Complete</button>
+              </form>
+              <a class="button secondary" href="/tasks/{{ task.id }}/edit">✎ Edit</a>
+              {% if task.project_id in pmap %}
+                <a class="button secondary" href="/projects/{{ task.project_id }}/edit">➡ Open Project</a>
+              {% else %}
+                <span class="button secondary disabled-button">➡ Open Project</span>
+              {% endif %}
+            </div>
+          </article>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="empty">No focus tasks right now. The workbench is clear.</p>
+      {% endif %}
+    </section>
+
+    <section class="workspace-panel">
+      <div class="section-heading">
+        <div>
+          <h2>Today's Notes</h2>
+          <p class="muted">Plain text scratch pad. Auto-saves for today.</p>
+        </div>
+        <div class="journal-actions">
+          <a class="button secondary compact-button" href="/workspace/journal">View Journal</a>
+          <span class="muted" id="note-save-status">Saved</span>
+        </div>
+      </div>
+      <textarea id="workspace-note" class="workspace-note" rows="12" placeholder="What matters today?">{{ note.content }}</textarea>
+    </section>
+  </main>
+
+  <aside class="workspace-side">
+    <section class="workspace-panel">
+      <h2>Workspace Summary</h2>
+      <div class="workspace-stats">
+        <div><strong>{{ summary.active_tasks }}</strong><span>Active Tasks</span></div>
+        <div><strong>{{ summary.completed_today }}</strong><span>Completed Today</span></div>
+        <div><strong>{{ summary.overdue }}</strong><span>Overdue</span></div>
+        <div><strong>{{ estimate_label(summary.estimated_remaining_minutes) }}</strong><span>Estimated Remaining</span></div>
+        <div><strong>{{ summary.completion_percent }}%</strong><span>Completion</span></div>
+      </div>
+    </section>
+
+    <section class="workspace-panel">
+      <h2>Today's Progress</h2>
+      <div class="progress-bar tall-progress" aria-label="{{ summary.completion_percent }} percent complete">
+        <span style="width: {{ summary.completion_percent }}%"></span>
+      </div>
+      <p class="muted">{{ summary.completed_today }} / {{ summary.progress_total }} tasks</p>
+      <p class="muted">Estimated Remaining: {{ estimate_label(summary.estimated_remaining_minutes) }}</p>
+    </section>
+
+    <section class="workspace-panel">
+      <h2>Upcoming</h2>
+      <p class="muted">Next 7 Days Estimate: {{ estimate_label(upcoming_estimate_minutes) }}</p>
+      <h3>Tomorrow</h3>
+      {% if tomorrow_tasks %}
+        <ul class="workspace-upcoming">
+          {% for task in tomorrow_tasks %}
+          <li><a href="/tasks/{{ task.id }}/edit">{{ task.title }}</a><span>{{ task.priority }}</span></li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="empty">Nothing due tomorrow.</p>
+      {% endif %}
+
+      <h3>Next 7 Days</h3>
+      {% if next_week_tasks %}
+        <ul class="workspace-upcoming">
+          {% for task in next_week_tasks %}
+          <li>
+            <a href="/tasks/{{ task.id }}/edit">{{ task.title }}</a>
+            <span>{{ format_task_date(task.due_date) }}</span>
+          </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="empty">No upcoming due dates.</p>
+      {% endif %}
+    </section>
+  </aside>
+</div>
+
+<script>
+(() => {
+  const note = document.getElementById("workspace-note");
+  const status = document.getElementById("note-save-status");
+  let noteTimer;
+
+  function saveNote() {
+    const body = new FormData();
+    body.append("content", note.value);
+    status.textContent = "Saving...";
+    fetch("/workspace/notes", {
+      method: "POST",
+      body,
+      headers: { "X-Requested-With": "fetch" }
+    }).then(() => {
+      status.textContent = "Saved";
+    }).catch(() => {
+      status.textContent = "Save failed";
+    });
+  }
+
+  if (note) {
+    note.addEventListener("input", () => {
+      status.textContent = "Unsaved";
+      clearTimeout(noteTimer);
+      noteTimer = setTimeout(saveNote, 500);
+    });
+  }
+
+  document.querySelectorAll(".workspace-complete-form").forEach((form) => {
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      fetch(form.action, {
+        method: "POST",
+        body: new FormData(form),
+        headers: { "X-Requested-With": "fetch" }
+      }).then((response) => {
+        if (!response.ok) {
+          throw new Error("Complete failed");
+        }
+        window.location.reload();
+      }).catch(() => {
+        form.submit();
+      });
+    });
+  });
+})();
+</script>
+{% endblock %}

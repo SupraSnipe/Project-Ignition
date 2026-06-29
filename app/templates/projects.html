@@ -25,9 +25,12 @@
       {% if project.target_date %}
       <p class="muted">Target: {{ project.target_date.strftime("%b %d, %Y") }}</p>
       {% endif %}
-      <form method="post" action="/projects/{{ project.id }}/archive">
-        <button class="secondary" type="submit">Archive</button>
-      </form>
+      <div class="item-actions">
+        <a class="button secondary" href="/projects/{{ project.id }}/edit">Edit</a>
+        <form method="post" action="/projects/{{ project.id }}/archive" class="inline-form">
+          <button class="secondary" type="submit">Archive</button>
+        </form>
+      </div>
     </div>
     {% endfor %}
   </div>

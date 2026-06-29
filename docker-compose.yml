@@ -4,6 +4,14 @@ services:
     container_name: build-planner
     ports:
       - "8088:8000"
+    environment:
+      APP_NAME: Build Planner
+      APP_ENV: production
+      DATABASE_PATH: /app/data/build_planner.db
+      BACKUP_DIR: /app/data/backups
+      LOG_LEVEL: INFO
+      DEFAULT_THEME: light
+      APP_TIME_ZONE: America/Denver
     volumes:
       - ./data:/app/data
     restart: unless-stopped

@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero journal-hero">
+  <div>
+    <h1>Journal Note</h1>
+    <p>{{ note_date_label }}</p>
+  </div>
+  <div class="hero-actions">
+    <a class="button secondary" href="/workspace/journal">Journal</a>
+    <a class="button secondary" href="/workspace">Ignite</a>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Daily Note</h2>
+  <form method="post" action="/workspace/journal/{{ note_date.isoformat() }}" class="journal-note-form">
+    <textarea name="content" class="workspace-note" rows="14" placeholder="Plain text note for this day">{{ note.content }}</textarea>
+    <div class="form-actions">
+      <button type="submit">Save Note</button>
+      <span class="muted">Plain text only.</span>
+    </div>
+  </form>
+</section>
+{% endblock %}

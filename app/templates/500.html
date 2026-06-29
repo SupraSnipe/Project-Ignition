@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <h1>Something Went Wrong</h1>
+  <p>The app hit an unexpected error. It has been logged for troubleshooting.</p>
+</section>
+
+<section class="card error-card">
+  <h2>500</h2>
+  <p>No stack trace is shown here, so the browser stays tidy.</p>
+  <a class="button" href="/">Dashboard</a>
+</section>
+{% endblock %}

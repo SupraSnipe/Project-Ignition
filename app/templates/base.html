@@ -2,20 +2,26 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>{{ title or "Build Planner" }}</title>
+  <title>{{ title or app_name }}</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link href="/static/style.css" rel="stylesheet">
 </head>
-<body>
+<body data-theme="{{ current_theme }}">
   <header class="topbar">
-    <div class="brand">Build Planner</div>
+    <div class="brand">{{ app_name }}</div>
     <nav>
       <a href="/">Dashboard</a>
+      <a href="/workspace">🚀 Ignite</a>
       <a href="/planner">4-Week Planner</a>
       <a href="/tasks">Tasks</a>
       <a href="/projects">Projects</a>
       <a href="/settings">Settings</a>
     </nav>
+    <form method="post" action="/theme" class="theme-toggle">
+      <input type="hidden" name="next_url" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}">
+      <input type="hidden" name="theme" value="{{ 'dark' if current_theme == 'light' else 'light' }}">
+      <button class="secondary" type="submit">{{ 'Dark' if current_theme == 'light' else 'Light' }}</button>
+    </form>
   </header>
 
   <main class="container">
